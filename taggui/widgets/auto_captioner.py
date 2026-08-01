@@ -4,12 +4,14 @@ import requests
 from PySide6.QtCore import QModelIndex, Qt, Signal, Slot
 from PySide6.QtGui import QFontMetrics, QTextCursor
 from PySide6.QtWidgets import (QAbstractScrollArea, QDockWidget, QFormLayout,
-                               QFrame, QHBoxLayout, QLabel, QMessageBox,
-                               QPlainTextEdit, QProgressBar, QPushButton,
-                               QScrollArea, QVBoxLayout, QWidget)
+                               QFrame, QHBoxLayout, QLabel, QLineEdit,
+                               QMessageBox, QPlainTextEdit, QProgressBar,
+                               QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
 from auto_captioning.captioning_thread import CaptioningThread
 from dialogs.caption_multiple_images_dialog import CaptionMultipleImagesDialog
+from dialogs.cloud_captioning_consent_dialog import \
+    CloudCaptioningConsentDialog
 from models.image_list_model import ImageListModel
 from utils.big_widgets import TallPushButton
 from utils.enums import CaptionPosition
@@ -22,8 +24,20 @@ from utils.settings_widgets import (FocusedScrollSettingsComboBox,
 from utils.utils import pluralize
 from widgets.image_list import ImageList
 
-DEFAULT_PORTS = {'llama.cpp': 'http://localhost:8080',
-                 'koboldcpp': 'http://localhost:5001'}
+# `is_cloud` backends require an API key field and trigger the cloud
+# captioning consent warning. `has_model_list` backends can serve more than
+# one model at a time, so a model dropdown (populated via `Connect`) is shown
+# instead of the fixed single-model status text.
+BACKENDS = {
+    'llama.cpp': {'default_url': 'http://localhost:8080', 'is_cloud': False,
+                 'has_model_list': False},
+    'koboldcpp': {'default_url': 'http://localhost:5001', 'is_cloud': False,
+                 'has_model_list': False},
+    'LM Studio': {'default_url': 'http://localhost:1234', 'is_cloud': False,
+                 'has_model_list': True},
+    'Cloud (OpenAI-compatible)': {'default_url': 'https://api.openai.com',
+                                  'is_cloud': True, 'has_model_list': True}
+}
 
 
 def set_text_edit_height(text_edit: QPlainTextEdit, line_count: int):
@@ -59,11 +73,24 @@ class CaptionSettingsForm(QVBoxLayout):
             QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.backend_combo_box = FocusedScrollSettingsComboBox(
             key='api_backend')
-        self.backend_combo_box.addItems(list(DEFAULT_PORTS))
+        self.backend_combo_box.addItems(list(BACKENDS))
         self.base_url_line_edit = SettingsLineEdit(
             key='api_base_url',
-            default=DEFAULT_PORTS[self.backend_combo_box.currentText()])
+            default=BACKENDS[self.backend_combo_box.currentText()][
+                'default_url'])
         self.base_url_line_edit.setClearButtonEnabled(True)
+        self.api_key_label = QLabel('API key')
+        self.api_key_line_edit = SettingsLineEdit(key='api_key')
+        self.api_key_line_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key_line_edit.setPlaceholderText(
+            'Only required by some cloud providers')
+        self.api_key_line_edit.setClearButtonEnabled(True)
+        self.model_label = QLabel('Model')
+        self.model_combo_box = FocusedScrollSettingsComboBox(key='api_model')
+        # `setEditable()` must be called before `addItems()` to preserve any
+        # custom model that was set.
+        self.model_combo_box.setEditable(True)
+        self.model_combo_box.addItems([])
         connect_container = QWidget()
         connect_layout = QHBoxLayout(connect_container)
         connect_layout.setContentsMargins(0, 0, 0, 0)
@@ -98,6 +125,8 @@ class CaptionSettingsForm(QVBoxLayout):
             self.remove_tag_separators_check_box)
         basic_settings_form.addRow('Backend', self.backend_combo_box)
         basic_settings_form.addRow('API base URL', self.base_url_line_edit)
+        basic_settings_form.addRow(self.api_key_label, self.api_key_line_edit)
+        basic_settings_form.addRow(self.model_label, self.model_combo_box)
         basic_settings_form.addRow('', connect_container)
         basic_settings_form.addRow('System prompt',
                                    self.system_prompt_text_edit)
@@ -149,35 +178,65 @@ class CaptionSettingsForm(QVBoxLayout):
         self.addStretch()
 
         self.backend_combo_box.currentTextChanged.connect(
-            self.set_default_base_url)
+            self.update_backend_dependent_ui)
         self.connect_button.clicked.connect(self.test_connection)
         self.toggle_advanced_settings_form_button.clicked.connect(
             self.toggle_advanced_settings_form)
+        self.update_backend_dependent_ui(self.backend_combo_box.currentText())
 
     @Slot(str)
-    def set_default_base_url(self, backend: str):
+    def update_backend_dependent_ui(self, backend: str):
+        config = BACKENDS[backend]
+        self.api_key_label.setVisible(config['is_cloud'])
+        self.api_key_line_edit.setVisible(config['is_cloud'])
+        self.model_label.setVisible(config['has_model_list'])
+        self.model_combo_box.setVisible(config['has_model_list'])
         if not self.base_url_line_edit.text().strip():
-            self.base_url_line_edit.setText(DEFAULT_PORTS[backend])
+            self.base_url_line_edit.setText(config['default_url'])
+
+    def get_auth_headers(self) -> dict:
+        api_key = self.api_key_line_edit.text().strip()
+        if api_key:
+            return {'Authorization': f'Bearer {api_key}'}
+        return {}
 
     @Slot()
     def test_connection(self):
+        backend = self.backend_combo_box.currentText()
+        has_model_list = BACKENDS[backend]['has_model_list']
         base_url = self.base_url_line_edit.text().strip().rstrip('/')
         if not base_url:
             self.connection_status_label.setStyleSheet('color: red;')
             self.connection_status_label.setText('API base URL is not set.')
             return
         try:
-            response = requests.get(f'{base_url}/v1/models', timeout=10)
+            response = requests.get(f'{base_url}/v1/models',
+                                    headers=self.get_auth_headers(),
+                                    timeout=10)
             response.raise_for_status()
             models = response.json().get('data', [])
-            model_name = models[0]['id'] if models else 'unknown'
-            self.connection_status_label.setStyleSheet('color: green;')
-            self.connection_status_label.setText(
-                f'Connected. Loaded model: {model_name}')
+            model_names = [model['id'] for model in models]
         except requests.RequestException as exception:
             self.connection_status_label.setStyleSheet('color: red;')
             self.connection_status_label.setText(f'Connection failed: '
                                                   f'{exception}')
+            return
+        self.connection_status_label.setStyleSheet('color: green;')
+        if has_model_list:
+            current_model = self.model_combo_box.currentText()
+            self.model_combo_box.clear()
+            self.model_combo_box.addItems(model_names)
+            if current_model:
+                self.model_combo_box.setCurrentText(current_model)
+            elif model_names:
+                self.model_combo_box.setCurrentText(model_names[0])
+            self.connection_status_label.setText(
+                f'Connected. {len(model_names)} '
+                f'{pluralize("model", len(model_names))} available.')
+        else:
+            model_name = model_names[0] if model_names else 'unknown'
+            self.connection_status_label.setText(
+                f'Connected. Loaded model: {model_name}')
 
     @Slot()
     def toggle_advanced_settings_form(self):
@@ -191,8 +250,13 @@ class CaptionSettingsForm(QVBoxLayout):
                 'Show Advanced Settings')
 
     def get_caption_settings(self) -> dict:
+        backend = self.backend_combo_box.currentText()
         return {
+            'backend': backend,
+            'is_cloud_backend': BACKENDS[backend]['is_cloud'],
             'base_url': self.base_url_line_edit.text(),
+            'api_key': self.api_key_line_edit.text(),
+            'model': self.model_combo_box.currentText(),
             'system_prompt': self.system_prompt_text_edit.toPlainText(),
             'prompt': self.prompt_text_edit.toPlainText(),
             'caption_start': self.caption_start_line_edit.text(),
@@ -226,6 +290,9 @@ class AutoCaptioner(QDockWidget):
         self.settings = get_settings()
         self.is_captioning = False
         self.captioning_thread = None
+        # Whether the cloud captioning consent warning has already been
+        # accepted this session. Reset only when the application restarts.
+        self.cloud_captioning_consent_given = False
         # Whether the last block of text in the console text edit should be
         # replaced with the next block of text that is outputted.
         self.replace_last_console_text_edit_block = False
@@ -320,6 +387,14 @@ class AutoCaptioner(QDockWidget):
 
     @Slot()
     def generate_captions(self):
+        caption_settings = self.caption_settings_form.get_caption_settings()
+        if (caption_settings['is_cloud_backend']
+                and not self.cloud_captioning_consent_given):
+            consent_dialog = CloudCaptioningConsentDialog()
+            reply = consent_dialog.exec()
+            if reply != QMessageBox.StandardButton.Ok:
+                return
+            self.cloud_captioning_consent_given = True
         selected_image_indices = self.image_list.get_selected_image_indices()
         selected_image_count = len(selected_image_indices)
         show_alert_when_finished = False
@@ -332,7 +407,6 @@ class AutoCaptioner(QDockWidget):
             show_alert_when_finished = (confirmation_dialog
                                         .show_alert_check_box.isChecked())
         self.set_is_captioning(True)
-        caption_settings = self.caption_settings_form.get_caption_settings()
         if caption_settings['caption_position'] != CaptionPosition.DO_NOT_ADD:
             self.image_list_model.add_to_undo_stack(
                 action_name=f'Generate '

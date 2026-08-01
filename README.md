@@ -51,26 +51,42 @@ files.
 <img src='images/auto-captioner-v1.18.0.png' alt='Auto-captioner screenshot' width='100%'>
 
 In addition to manual tagging, you can automatically generate captions for
-your images inside TagGUI by sending them to a locally running
-OpenAI-compatible vision API, such as a
-[llama.cpp server](https://github.com/ggml-org/llama.cpp) or
-[koboldcpp](https://github.com/LostRuins/koboldcpp) with a vision-capable
-model loaded.
+your images inside TagGUI by sending them to any OpenAI-compatible vision
+API. Four backends are supported:
 
-To use the feature, start your llama.cpp/koboldcpp server with a
-multimodal model loaded, then select the images you want to caption in the
-image list, set the `API base URL` in the Auto-Captioner pane (click
-`Connect` to verify the server is reachable and see which model is loaded),
-and click the `Start Auto-Captioning` button.
+- [llama.cpp server](https://github.com/ggml-org/llama.cpp) (local, single
+  model)
+- [koboldcpp](https://github.com/LostRuins/koboldcpp) (local, single model)
+- [LM Studio](https://lmstudio.ai/) (local, can serve multiple downloaded
+  models)
+- Cloud (OpenAI-compatible) — any hosted API that speaks the OpenAI chat
+  completions format (OpenAI itself, OpenRouter, etc.)
+
+To use the feature, select a `Backend` in the Auto-Captioner pane, set the
+`API base URL` (and, for a cloud backend, an `API key`), then click
+`Connect` to verify the server is reachable. Select the images you want to
+caption in the image list and click `Start Auto-Captioning`.
 You can select multiple images to batch generate captions for all of them.
 
 ### Captioning parameters
 
-`Backend`/`API base URL`: The address of your llama.cpp/koboldcpp server's
+`Backend`/`API base URL`: The address of your captioning server's
 OpenAI-compatible API (for example `http://localhost:8080` for llama.cpp
-server or `http://localhost:5001` for koboldcpp). Only one model can be
-loaded on the server at a time, so there is no separate model selector in
-TagGUI.
+server, `http://localhost:5001` for koboldcpp, `http://localhost:1234` for
+LM Studio, or your provider's endpoint for a cloud backend).
+
+`API key`: Only shown for the Cloud backend. Sent as an `Authorization:
+Bearer` header; leave it blank if your endpoint doesn't require one. It is
+saved in plain text in `settings.ini` alongside the other settings.
+
+`Model`: Only shown for backends that can serve more than one model (LM
+Studio and Cloud). llama.cpp server and koboldcpp only ever have one model
+loaded, so there is nothing to select for those. Click `Connect` to
+populate the dropdown with the models currently available on the server.
+
+Selecting the Cloud backend and starting auto-captioning shows a one-time
+warning per session that your images will be uploaded to a third-party
+server; you must check the consent box to proceed.
 
 `System prompt`: Instructions given to the model that apply to every image,
 independent of the per-image prompt below.
