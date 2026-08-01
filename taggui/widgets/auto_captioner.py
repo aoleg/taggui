@@ -6,7 +6,8 @@ from PySide6.QtGui import QFontMetrics, QTextCursor
 from PySide6.QtWidgets import (QAbstractScrollArea, QDockWidget, QFormLayout,
                                QFrame, QHBoxLayout, QLabel, QLineEdit,
                                QMessageBox, QPlainTextEdit, QProgressBar,
-                               QPushButton, QScrollArea, QVBoxLayout, QWidget)
+                               QPushButton, QScrollArea, QSizePolicy,
+                               QVBoxLayout, QWidget)
 
 from auto_captioning.captioning_thread import CaptioningThread
 from dialogs.caption_multiple_images_dialog import CaptionMultipleImagesDialog
@@ -91,6 +92,11 @@ class CaptionSettingsForm(QVBoxLayout):
         # custom model that was set.
         self.model_combo_box.setEditable(True)
         self.model_combo_box.addItems([])
+        # `QComboBox` defaults to a `Preferred` horizontal size policy, so
+        # with no items (or short ones) it stays narrow instead of matching
+        # the width of the other fields under `ExpandingFieldsGrow`.
+        self.model_combo_box.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                           QSizePolicy.Policy.Fixed)
         connect_container = QWidget()
         connect_layout = QHBoxLayout(connect_container)
         connect_layout.setContentsMargins(0, 0, 0, 0)
