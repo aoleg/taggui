@@ -4,7 +4,6 @@ import sys
 import traceback
 import warnings
 
-import transformers
 from PySide6.QtGui import QImageReader
 from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -20,13 +19,6 @@ def suppress_warnings():
         return
     logging.basicConfig(level=logging.ERROR)
     warnings.simplefilter('ignore')
-    transformers.logging.set_verbosity_error()
-    try:
-        import auto_gptq
-        auto_gptq_logger = logging.getLogger(auto_gptq.modeling._base.__name__)
-        auto_gptq_logger.setLevel(logging.ERROR)
-    except ImportError:
-        pass
 
 
 def run_gui():
@@ -44,14 +36,6 @@ def run_gui():
 
 
 if __name__ == '__main__':
-    # Prevent PyTorch from opening multiple windows when running inside a
-    # PyInstaller bundle.
-    if len(sys.argv) > 1 and 'compile_worker' in sys.argv[1]:
-        import runpy
-
-        sys.argv = sys.argv[1:]
-        runpy.run_path(sys.argv[0], run_name='__main__')
-        sys.exit(0)
     suppress_warnings()
     try:
         run_gui()

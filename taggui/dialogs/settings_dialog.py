@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, Slot
-from PySide6.QtWidgets import (QDialog, QFileDialog, QGridLayout, QLabel,
-                               QLineEdit, QPushButton, QVBoxLayout)
+from PySide6.QtWidgets import QDialog, QGridLayout, QLabel, QLineEdit, \
+    QVBoxLayout
 
 from utils.settings import DEFAULT_SETTINGS, get_settings
 from utils.settings_widgets import (SettingsBigCheckBox, SettingsLineEdit,
@@ -29,8 +29,6 @@ class SettingsDialog(QDialog):
                               Qt.AlignmentFlag.AlignRight)
         grid_layout.addWidget(QLabel('Show tag autocomplete suggestions'),
                               5, 0, Qt.AlignmentFlag.AlignRight)
-        grid_layout.addWidget(QLabel('Auto-captioning models directory'), 6, 0,
-                              Qt.AlignmentFlag.AlignRight)
 
         font_size_spin_box = SettingsSpinBox(
             key='font_size', default=DEFAULT_SETTINGS['font_size'],
@@ -64,17 +62,6 @@ class SettingsDialog(QDialog):
             default=DEFAULT_SETTINGS['autocomplete_tags'])
         autocomplete_tags_check_box.stateChanged.connect(
             self.show_restart_warning)
-        self.models_directory_line_edit = SettingsLineEdit(
-            key='models_directory_path',
-            default=DEFAULT_SETTINGS['models_directory_path'])
-        self.models_directory_line_edit.setMinimumWidth(400)
-        self.models_directory_line_edit.setClearButtonEnabled(True)
-        self.models_directory_line_edit.textChanged.connect(
-            self.show_restart_warning)
-        models_directory_button = QPushButton('Select Directory...')
-        models_directory_button.setFixedWidth(
-            int(models_directory_button.sizeHint().width() * 1.3))
-        models_directory_button.clicked.connect(self.set_models_directory_path)
         file_types_line_edit = SettingsLineEdit(
             key='image_list_file_formats',
             default=DEFAULT_SETTINGS['image_list_file_formats'])
@@ -92,10 +79,6 @@ class SettingsDialog(QDialog):
         grid_layout.addWidget(self.insert_space_after_tag_separator_check_box,
                               4, 1, Qt.AlignmentFlag.AlignLeft)
         grid_layout.addWidget(autocomplete_tags_check_box, 5, 1,
-                              Qt.AlignmentFlag.AlignLeft)
-        grid_layout.addWidget(self.models_directory_line_edit, 6, 1,
-                              Qt.AlignmentFlag.AlignLeft)
-        grid_layout.addWidget(models_directory_button, 7, 1,
                               Qt.AlignmentFlag.AlignLeft)
         layout.addLayout(grid_layout)
 
@@ -135,21 +118,3 @@ class SettingsDialog(QDialog):
             self.insert_space_after_tag_separator_check_box.setEnabled(True)
         self.settings.setValue('tag_separator', tag_separator)
         self.show_restart_warning()
-
-    @Slot()
-    def set_models_directory_path(self):
-        models_directory_path = self.settings.value(
-            'models_directory_path',
-            defaultValue=DEFAULT_SETTINGS['models_directory_path'], type=str)
-        if models_directory_path:
-            initial_directory_path = models_directory_path
-        elif self.settings.contains('directory_path'):
-            initial_directory_path = self.settings.value('directory_path')
-        else:
-            initial_directory_path = ''
-        models_directory_path = QFileDialog.getExistingDirectory(
-            parent=self, caption='Select directory containing auto-captioning '
-                                 'models',
-            dir=initial_directory_path)
-        if models_directory_path:
-            self.models_directory_line_edit.setText(models_directory_path)

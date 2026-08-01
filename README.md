@@ -12,8 +12,8 @@ models.
 
 - Keyboard-friendly interface for fast tagging
 - Tag autocomplete based on your own most-used tags
-- Integrated token counter (for Stable Diffusion)
-- Automatic caption and tag generation
+- Automatic caption generation via any OpenAI-compatible vision API
+  (llama.cpp server, koboldcpp, etc.)
 - Batch tag operations for renaming, deleting, and sorting tags
 - Advanced image list filtering
 
@@ -50,24 +50,32 @@ files.
 
 <img src='images/auto-captioner-v1.18.0.png' alt='Auto-captioner screenshot' width='100%'>
 
-In addition to manual tagging, you can automatically generate captions or tags
-for your images inside TagGUI.
-GPU generation requires a compatible NVIDIA GPU, and CPU generation is also
-supported.
+In addition to manual tagging, you can automatically generate captions for
+your images inside TagGUI by sending them to a locally running
+OpenAI-compatible vision API, such as a
+[llama.cpp server](https://github.com/ggml-org/llama.cpp) or
+[koboldcpp](https://github.com/LostRuins/koboldcpp) with a vision-capable
+model loaded.
 
-To use the feature, select the images you want to caption in the image list,
-then select the captioning model you want to use in the Auto-Captioner pane.
-If you have a local directory containing previously downloaded models, you can
-set it in `File` -> `Settings` to include the models in the model list.
-Click the `Start Auto-Captioning` button to start captioning.
+To use the feature, start your llama.cpp/koboldcpp server with a
+multimodal model loaded, then select the images you want to caption in the
+image list, set the `API base URL` in the Auto-Captioner pane (click
+`Connect` to verify the server is reachable and see which model is loaded),
+and click the `Start Auto-Captioning` button.
 You can select multiple images to batch generate captions for all of them.
-It can take up to several minutes to download and load a model when you first
-use it, but subsequent generations will be much faster.
 
 ### Captioning parameters
 
-`Prompt`: Instructions given to the captioning model.
-Prompt formats are handled automatically based on the selected model.
+`Backend`/`API base URL`: The address of your llama.cpp/koboldcpp server's
+OpenAI-compatible API (for example `http://localhost:8080` for llama.cpp
+server or `http://localhost:5001` for koboldcpp). Only one model can be
+loaded on the server at a time, so there is no separate model selector in
+TagGUI.
+
+`System prompt`: Instructions given to the model that apply to every image,
+independent of the per-image prompt below.
+
+`Prompt`: Instructions given to the captioning model for each image.
 You can use the following template variables to dynamically insert information
 about each image into the prompt:
 
@@ -80,33 +88,16 @@ An example prompt using a template variable could be
 With this prompt, `{tags}` would be replaced with the existing tags of each
 image before the prompt is sent to the model.
 
-`Start caption with`: Generated captions will start with this text.
+`Start caption with`: Generated captions will start with this text. If the
+model's response does not already start with it, it is prepended to the
+response.
 
 `Remove tag separators in caption`: If checked, tag separators (commas by
 default) will be removed from the generated captions.
 
-`Discourage from caption`: Words or phrases that should not be present in the
-generated captions.
-You can separate multiple words or phrases with commas (`,`).
-For example, you can put `appears,seems,possibly` to prevent the model from
-using an uncertain tone in the captions.
-The words may still be generated due to limitations related to tokenization.
-
-`Include in caption`: Words or phrases that should be present somewhere in the
-generated captions.
-You can separate multiple words or phrases with commas (`,`).
-You can also allow the captioning model to choose from a group of words or
-phrases by separating them with `|`.
-For example, if you put `cat,orange|white|black`, the model will attempt to
-generate captions that contain the word `cat` and either `orange`, `white`,
-or `black`.
-It is not guaranteed that all of your specifications will be met.
-
-`Tags to exclude` (WD Tagger models): Tags that should not be generated,
-separated by commas.
-
-Many of the other generation parameters are described in the
-[Hugging Face documentation](https://huggingface.co/docs/transformers/main/en/main_classes/text_generation#transformers.GenerationConfig).
+The advanced settings (`Maximum tokens`, `Temperature`, `Top-p`, `Top-k`,
+`Repetition penalty`) are passed directly to the API and control the
+model's sampling behavior.
 
 ## Advanced Image List Filtering
 
@@ -154,11 +145,6 @@ comparison.
     - `chars:<100` will match images that have less than 100 characters in the
       caption.
     - `chars:>=30` will match images that have 30 or more characters in the
-      caption.
-- `tokens`: Images that have the specified number of tokens in the caption
-    - `tokens:>75` will match images that have more than 75 tokens in the
-      caption.
-    - `tokens:<=50` will match images that have 50 or fewer tokens in the
       caption.
 
 ### Spaces and quotes

@@ -1,12 +1,10 @@
 from datetime import datetime
-from pathlib import Path
 from time import perf_counter
 
 from PIL import UnidentifiedImageError
 from PySide6.QtCore import QModelIndex, QThread, Qt, Signal
 
-from auto_captioning.auto_captioning_model import AutoCaptioningModel
-from auto_captioning.models_list import get_model_class
+from auto_captioning.captioning_model import CaptioningModel
 from models.image_list_model import ImageListModel
 from utils.enums import CaptionPosition
 from utils.image import Image
@@ -63,22 +61,18 @@ class CaptioningThread(QThread):
 
     def __init__(self, parent, image_list_model: ImageListModel,
                  selected_image_indices: list[QModelIndex],
-                 caption_settings: dict, tag_separator: str,
-                 models_directory_path: Path | None):
+                 caption_settings: dict, tag_separator: str):
         super().__init__(parent)
         self.image_list_model = image_list_model
         self.selected_image_indices = selected_image_indices
         self.caption_settings = caption_settings
         self.tag_separator = tag_separator
-        self.models_directory_path = models_directory_path
         self.is_error = False
         self.is_canceled = False
 
     def run_captioning(self):
-        model_id = self.caption_settings['model_id']
-        model_class = get_model_class(model_id)
-        model: AutoCaptioningModel = model_class(
-            captioning_thread_=self, caption_settings=self.caption_settings)
+        model = CaptioningModel(captioning_thread_=self,
+                                caption_settings=self.caption_settings)
         error_message = model.get_error_message()
         if error_message:
             self.is_error = True

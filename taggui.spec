@@ -1,10 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-datas = [('clip-vit-base-patch32', 'clip-vit-base-patch32'),
-         ('images/icon.ico', 'images')]
-hiddenimports = [
-    'timm.models.layers',
-]
+datas = [('images/icon.ico', 'images')]
+hiddenimports = []
 
 block_cipher = None
 

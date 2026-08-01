@@ -2,9 +2,8 @@ from PySide6.QtCore import (QItemSelectionModel, QModelIndex, QStringListModel,
                             QTimer, Qt, Signal, Slot)
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (QAbstractItemView, QCompleter, QDockWidget,
-                               QLabel, QLineEdit, QListView, QMessageBox,
+                               QLineEdit, QListView, QMessageBox,
                                QVBoxLayout, QWidget)
-from transformers import PreTrainedTokenizerBase
 
 from models.proxy_image_list_model import ProxyImageListModel
 from models.tag_counter_model import TagCounterModel
@@ -13,8 +12,6 @@ from utils.settings import DEFAULT_SETTINGS, get_settings
 from utils.text_edit_item_delegate import TextEditItemDelegate
 from utils.utils import get_confirmation_dialog_reply
 from widgets.image_list import ImageList
-
-MAX_TOKEN_COUNT = 75
 
 
 class TagInputBox(QLineEdit):
@@ -137,11 +134,10 @@ class ImageTagsEditor(QDockWidget):
     def __init__(self, proxy_image_list_model: ProxyImageListModel,
                  tag_counter_model: TagCounterModel,
                  image_tag_list_model: QStringListModel, image_list: ImageList,
-                 tokenizer: PreTrainedTokenizerBase, tag_separator: str):
+                 tag_separator: str):
         super().__init__()
         self.proxy_image_list_model = proxy_image_list_model
         self.image_tag_list_model = image_tag_list_model
-        self.tokenizer = tokenizer
         self.tag_separator = tag_separator
         self.image_index = None
 
@@ -154,13 +150,11 @@ class ImageTagsEditor(QDockWidget):
                                          tag_counter_model, image_list,
                                          tag_separator)
         self.image_tags_list = ImageTagsList(self.image_tag_list_model)
-        self.token_count_label = QLabel()
         # A container widget is required to use a layout with a `QDockWidget`.
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.addWidget(self.tag_input_box)
         layout.addWidget(self.image_tags_list)
-        layout.addWidget(self.token_count_label)
         self.setWidget(container)
 
         # When a tag is added, select it and scroll to the bottom of the list.
@@ -171,23 +165,6 @@ class ImageTagsEditor(QDockWidget):
                 QItemSelectionModel.SelectionFlag.ClearAndSelect))
         self.image_tag_list_model.rowsInserted.connect(
             self.image_tags_list.scrollToBottom)
-        # `rowsInserted` does not have to be connected because `dataChanged`
-        # is emitted when a tag is added.
-        self.image_tag_list_model.modelReset.connect(self.count_tokens)
-        self.image_tag_list_model.dataChanged.connect(self.count_tokens)
-
-    @Slot()
-    def count_tokens(self):
-        caption = self.tag_separator.join(
-            self.image_tag_list_model.stringList())
-        # Subtract 2 for the `<|startoftext|>` and `<|endoftext|>` tokens.
-        caption_token_count = len(self.tokenizer(caption).input_ids) - 2
-        if caption_token_count > MAX_TOKEN_COUNT:
-            self.token_count_label.setStyleSheet('color: red;')
-        else:
-            self.token_count_label.setStyleSheet('')
-        self.token_count_label.setText(f'{caption_token_count} / '
-                                       f'{MAX_TOKEN_COUNT} Tokens')
 
     @Slot()
     def select_first_tag(self):
@@ -216,7 +193,6 @@ class ImageTagsEditor(QDockWidget):
         if current_string_list == image.tags:
             return
         self.image_tag_list_model.setStringList(image.tags)
-        self.count_tokens()
         if self.image_tags_list.hasFocus():
             self.select_first_tag()
 

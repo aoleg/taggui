@@ -19,8 +19,3 @@ class CaptionPosition(str, Enum):
     OVERWRITE_FIRST_TAG = 'Overwrite first tag'
     OVERWRITE_ALL_TAGS = 'Overwrite all tags'
     DO_NOT_ADD = 'Do not add to tags'
-
-
-class CaptionDevice(str, Enum):
-    GPU = 'GPU if available'
-    CPU = 'CPU'

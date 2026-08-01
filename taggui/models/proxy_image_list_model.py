@@ -2,18 +2,15 @@ import operator
 from fnmatch import fnmatchcase
 
 from PySide6.QtCore import QModelIndex, QSortFilterProxyModel, Qt
-from transformers import PreTrainedTokenizerBase
 
 from models.image_list_model import ImageListModel
 from utils.image import Image
 
 
 class ProxyImageListModel(QSortFilterProxyModel):
-    def __init__(self, image_list_model: ImageListModel,
-                 tokenizer: PreTrainedTokenizerBase, tag_separator: str):
+    def __init__(self, image_list_model: ImageListModel, tag_separator: str):
         super().__init__()
         self.setSourceModel(image_list_model)
-        self.tokenizer = tokenizer
         self.tag_separator = tag_separator
         self.filter: list | None = None
 
@@ -59,10 +56,6 @@ class ProxyImageListModel(QSortFilterProxyModel):
         elif filter_[0] == 'chars':
             caption = self.tag_separator.join(image.tags)
             number_to_compare = len(caption)
-        elif filter_[0] == 'tokens':
-            caption = self.tag_separator.join(image.tags)
-            # Subtract 2 for the `<|startoftext|>` and `<|endoftext|>` tokens.
-            number_to_compare = len(self.tokenizer(caption).input_ids) - 2
         return comparison_operator(number_to_compare, int(filter_[2]))
 
     def filterAcceptsRow(self, source_row: int,
