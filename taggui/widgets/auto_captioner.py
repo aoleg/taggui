@@ -166,6 +166,8 @@ class CaptionSettingsForm(QVBoxLayout):
         self.repetition_penalty_spin_box = FocusedScrollSettingsDoubleSpinBox(
             key='repetition_penalty', default=1, minimum=1, maximum=2)
         self.repetition_penalty_spin_box.setSingleStep(0.01)
+        self.allow_reasoning_check_box = SettingsBigCheckBox(
+            key='allow_reasoning', default=False)
         advanced_settings_form.addRow('Maximum tokens',
                                       self.max_tokens_spin_box)
         advanced_settings_form.addRow('Temperature',
@@ -174,6 +176,8 @@ class CaptionSettingsForm(QVBoxLayout):
         advanced_settings_form.addRow('Top-k', self.top_k_spin_box)
         advanced_settings_form.addRow('Repetition penalty',
                                       self.repetition_penalty_spin_box)
+        advanced_settings_form.addRow('Allow reasoning',
+                                      self.allow_reasoning_check_box)
         self.advanced_settings_form_container.hide()
 
         self.addLayout(basic_settings_form)
@@ -274,7 +278,8 @@ class CaptionSettingsForm(QVBoxLayout):
                 'temperature': self.temperature_spin_box.value(),
                 'top_p': self.top_p_spin_box.value(),
                 'top_k': self.top_k_spin_box.value(),
-                'repetition_penalty': self.repetition_penalty_spin_box.value()
+                'repetition_penalty': self.repetition_penalty_spin_box.value(),
+                'enable_thinking': self.allow_reasoning_check_box.isChecked()
             }
         }
 
