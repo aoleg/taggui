@@ -15,6 +15,31 @@ if TYPE_CHECKING:
 
 REQUEST_TIMEOUT_SECONDS = 300
 
+# Reasoning models emit their chain of thought inside a dedicated block.
+# Endpoints normally return it separately as `reasoning_content`, but it ends
+# up inline in `content` when the block is left unterminated, such as when the
+# token limit cuts it short. These are the delimiters used by the Gemma 4
+# channel format and by the `<think>` format that most other reasoning models
+# share.
+THINKING_DELIMITERS = (('<|channel>', '<channel|>'), ('<think>', '</think>'))
+
+
+def strip_thinking(text: str) -> str:
+    """
+    Remove any chain-of-thought block that was returned inline in the
+    generated text.
+    """
+    for opening, closing in THINKING_DELIMITERS:
+        if opening not in text:
+            continue
+        # This mirrors the `strip_thinking` macro in the Gemma 4 chat
+        # template: only the text outside of the delimiter pairs is kept. A
+        # block that was truncated before its closing delimiter therefore
+        # removes everything that follows it.
+        text = ''.join(part.split(opening)[0] if opening in part else part
+                       for part in text.split(closing))
+    return text
+
 
 def replace_template_variable(match: re.Match, image: Image) -> str:
     template_variable = match.group(0)[1:-1].lower()
@@ -128,7 +153,7 @@ class CaptioningModel:
         return {'messages': messages}
 
     def postprocess_generated_text(self, generated_text: str) -> str:
-        generated_text = generated_text.strip()
+        generated_text = strip_thinking(generated_text).strip()
         if self.caption_start.strip() and not generated_text.startswith(
                 self.caption_start):
             caption = f'{self.caption_start.strip()} {generated_text}'
@@ -155,7 +180,12 @@ class CaptioningModel:
             raise RuntimeError(f'Request to {self.base_url} failed: '
                                f'{exception}')
         response_json = response.json()
-        generated_text = response_json['choices'][0]['message']['content']
+        choice = response_json['choices'][0]
+        generated_text = choice['message'].get('content') or ''
         caption = self.postprocess_generated_text(generated_text)
+        if not caption and choice.get('finish_reason') == 'length':
+            print('The model reached the token limit while reasoning, before '
+                  'it generated a caption. Turn off "Allow reasoning" or '
+                  'increase "Maximum tokens".')
         console_output_caption = caption
         return caption, console_output_caption

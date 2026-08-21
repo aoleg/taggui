@@ -279,7 +279,13 @@ class CaptionSettingsForm(QVBoxLayout):
                 'top_p': self.top_p_spin_box.value(),
                 'top_k': self.top_k_spin_box.value(),
                 'repetition_penalty': self.repetition_penalty_spin_box.value(),
-                'enable_thinking': self.allow_reasoning_check_box.isChecked()
+                # Reasoning is toggled by the chat template, not by the
+                # sampler, so the flag has to be passed as a template
+                # variable. A top-level `enable_thinking` is silently ignored.
+                'chat_template_kwargs': {
+                    'enable_thinking':
+                        self.allow_reasoning_check_box.isChecked()
+                }
             }
         }
 
