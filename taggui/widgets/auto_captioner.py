@@ -178,6 +178,15 @@ class CaptionSettingsForm(QVBoxLayout):
                                       self.repetition_penalty_spin_box)
         advanced_settings_form.addRow('Allow reasoning',
                                       self.allow_reasoning_check_box)
+        # Reasoning is generated before the caption and counts against the
+        # token limit, so a low limit can be used up before any caption is
+        # generated. A disabled label is used to style the hint as secondary
+        # text.
+        reasoning_hint_label = QLabel('Use 2048 or more maximum tokens for '
+                                      'reasoning models.')
+        reasoning_hint_label.setWordWrap(True)
+        reasoning_hint_label.setEnabled(False)
+        advanced_settings_form.addRow('', reasoning_hint_label)
         self.advanced_settings_form_container.hide()
 
         self.addLayout(basic_settings_form)
@@ -261,6 +270,26 @@ class CaptionSettingsForm(QVBoxLayout):
 
     def get_caption_settings(self) -> dict:
         backend = self.backend_combo_box.currentText()
+        allow_reasoning = self.allow_reasoning_check_box.isChecked()
+        generation_parameters = {
+            'max_tokens': self.max_tokens_spin_box.value(),
+            'temperature': self.temperature_spin_box.value(),
+            'top_p': self.top_p_spin_box.value(),
+            'top_k': self.top_k_spin_box.value(),
+            'repetition_penalty': self.repetition_penalty_spin_box.value(),
+            # Reasoning is toggled by the chat template, not by the sampler, so
+            # the flag has to be passed as a template variable. A top-level
+            # `enable_thinking` is silently ignored.
+            'chat_template_kwargs': {'enable_thinking': allow_reasoning}
+        }
+        if not allow_reasoning:
+            # LM Studio ignores `chat_template_kwargs` and instead maps
+            # `reasoning_effort` onto whatever reasoning fields the model
+            # declares, so both have to be sent to cover every backend. Only
+            # `none` turns reasoning off; `low` still reasons in full. When
+            # reasoning is allowed, the parameter is left out so that the model
+            # uses its own default.
+            generation_parameters['reasoning_effort'] = 'none'
         return {
             'backend': backend,
             'is_cloud_backend': BACKENDS[backend]['is_cloud'],
@@ -273,20 +302,7 @@ class CaptionSettingsForm(QVBoxLayout):
             'caption_position': self.caption_position_combo_box.currentText(),
             'remove_tag_separators':
                 self.remove_tag_separators_check_box.isChecked(),
-            'generation_parameters': {
-                'max_tokens': self.max_tokens_spin_box.value(),
-                'temperature': self.temperature_spin_box.value(),
-                'top_p': self.top_p_spin_box.value(),
-                'top_k': self.top_k_spin_box.value(),
-                'repetition_penalty': self.repetition_penalty_spin_box.value(),
-                # Reasoning is toggled by the chat template, not by the
-                # sampler, so the flag has to be passed as a template
-                # variable. A top-level `enable_thinking` is silently ignored.
-                'chat_template_kwargs': {
-                    'enable_thinking':
-                        self.allow_reasoning_check_box.isChecked()
-                }
-            }
+            'generation_parameters': generation_parameters
         }
 
 
