@@ -54,6 +54,7 @@ class ImageListModel(QAbstractListModel):
         super().__init__()
         self.image_list_image_width = image_list_image_width
         self.tag_separator = tag_separator
+        self.directory_path: Path | None = None
         self.images: list[Image] = []
         self.undo_stack = deque(maxlen=UNDO_STACK_SIZE)
         self.redo_stack = []
@@ -68,8 +69,15 @@ class ImageListModel(QAbstractListModel):
         if role == Qt.ItemDataRole.UserRole:
             return image
         if role == Qt.ItemDataRole.DisplayRole:
-            # The text shown next to the thumbnail in the image list.
-            text = image.path.name
+            # The text shown next to the thumbnail in the image list. For an
+            # image inside a subdirectory of the loaded directory, show the
+            # relative path so that images from different subdirectories can
+            # be told apart.
+            if (self.directory_path
+                    and image.path.parent != self.directory_path):
+                text = str(image.path.relative_to(self.directory_path))
+            else:
+                text = image.path.name
             if image.tags:
                 caption = self.tag_separator.join(image.tags)
                 text += f'\n{caption}'
@@ -101,6 +109,7 @@ class ImageListModel(QAbstractListModel):
                          int(self.image_list_image_width * height / width))
 
     def load_directory(self, directory_path: Path):
+        self.directory_path = directory_path
         self.images.clear()
         self.undo_stack.clear()
         self.redo_stack.clear()
@@ -455,6 +464,28 @@ class ImageListModel(QAbstractListModel):
             self.dataChanged.emit(self.index(changed_image_indices[0]),
                                   self.index(changed_image_indices[-1]))
         return removed_tag_count
+
+    def prefill_tags_with_directory_name(self) -> int:
+        """
+        Set the name of the containing directory as the tag for each image
+        that has no tags, creating the sidecar text file. Return the number
+        of images that were tagged.
+        """
+        self.add_to_undo_stack(action_name='Prefill Tags with Folder Name',
+                               should_ask_for_confirmation=True)
+        changed_image_indices = []
+        for image_index, image in enumerate(self.images):
+            if image.tags:
+                continue
+            changed_image_indices.append(image_index)
+            # `image.path.parent.name` is identical to what the `{directory}`
+            # template variable expands to in the auto-captioner.
+            image.tags = [image.path.parent.name]
+            self.write_image_tags_to_disk(image)
+        if changed_image_indices:
+            self.dataChanged.emit(self.index(changed_image_indices[0]),
+                                  self.index(changed_image_indices[-1]))
+        return len(changed_image_indices)
 
     def update_image_tags(self, image_index: QModelIndex, tags: list[str]):
         image: Image = self.data(image_index, Qt.ItemDataRole.UserRole)

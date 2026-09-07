@@ -296,6 +296,22 @@ class MainWindow(QMainWindow):
         message_box.setText(text)
         message_box.exec()
 
+    @Slot()
+    def prefill_tags_with_directory_name(self):
+        prefilled_image_count = (
+            self.image_list_model.prefill_tags_with_directory_name())
+        message_box = QMessageBox()
+        message_box.setWindowTitle('Prefill Tags with Folder Name')
+        message_box.setIcon(QMessageBox.Icon.Information)
+        if not prefilled_image_count:
+            text = 'No images without tags were found.'
+        else:
+            text = (f'Tagged {prefilled_image_count} '
+                    f'{pluralize("image", prefilled_image_count)} with the '
+                    f'name of the containing folder.')
+        message_box.setText(text)
+        message_box.exec()
+
     def create_menus(self):
         menu_bar = self.menuBar()
 
@@ -348,6 +364,11 @@ class MainWindow(QMainWindow):
         remove_empty_tags_action.triggered.connect(
             self.remove_empty_tags)
         edit_menu.addAction(remove_empty_tags_action)
+        prefill_tags_action = QAction('Prefill Tags with Folder Name',
+                                      parent=self)
+        prefill_tags_action.triggered.connect(
+            self.prefill_tags_with_directory_name)
+        edit_menu.addAction(prefill_tags_action)
 
         view_menu = menu_bar.addMenu('View')
         self.toggle_image_list_action.setCheckable(True)
