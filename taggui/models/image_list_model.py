@@ -467,20 +467,22 @@ class ImageListModel(QAbstractListModel):
 
     def prefill_tags_with_directory_name(self) -> int:
         """
-        Set the name of the containing directory as the tag for each image
-        that has no tags, creating the sidecar text file. Return the number
-        of images that were tagged.
+        Add the name of the containing directory as the first tag for each
+        image that does not already have it as a tag, creating the sidecar
+        text file if there is none. Return the number of images that were
+        tagged.
         """
         self.add_to_undo_stack(action_name='Prefill Tags with Folder Name',
                                should_ask_for_confirmation=True)
         changed_image_indices = []
         for image_index, image in enumerate(self.images):
-            if image.tags:
-                continue
-            changed_image_indices.append(image_index)
             # `image.path.parent.name` is identical to what the `{directory}`
             # template variable expands to in the auto-captioner.
-            image.tags = [image.path.parent.name]
+            directory_tag = image.path.parent.name
+            if directory_tag in image.tags:
+                continue
+            changed_image_indices.append(image_index)
+            image.tags = [directory_tag] + image.tags
             self.write_image_tags_to_disk(image)
         if changed_image_indices:
             self.dataChanged.emit(self.index(changed_image_indices[0]),

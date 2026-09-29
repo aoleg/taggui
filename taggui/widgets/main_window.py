@@ -304,11 +304,12 @@ class MainWindow(QMainWindow):
         message_box.setWindowTitle('Prefill Tags with Folder Name')
         message_box.setIcon(QMessageBox.Icon.Information)
         if not prefilled_image_count:
-            text = 'No images without tags were found.'
+            text = ('All images already have the name of the containing '
+                    'folder as a tag.')
         else:
-            text = (f'Tagged {prefilled_image_count} '
-                    f'{pluralize("image", prefilled_image_count)} with the '
-                    f'name of the containing folder.')
+            text = (f'Added the name of the containing folder as the first '
+                    f'tag for {prefilled_image_count} '
+                    f'{pluralize("image", prefilled_image_count)}.')
         message_box.setText(text)
         message_box.exec()
 
