@@ -14,6 +14,13 @@ if TYPE_CHECKING:
     import auto_captioning.captioning_thread as captioning_thread
 
 REQUEST_TIMEOUT_SECONDS = 300
+# Images are sent as JPEG if the source file is a JPEG (MPO is the multi-picture
+# JPEG variant that some cameras write), or if they have more pixels than this.
+# Smaller images in other formats are sent as PNG so that no detail is lost.
+# Large PNG images can exceed the request size limit of the endpoint.
+JPEG_FORMATS = ('JPEG', 'MPO')
+MAX_PNG_PIXEL_COUNT = 1024 * 1024
+JPEG_QUALITY = 95
 
 # Reasoning models emit their chain of thought inside a dedicated block.
 # Endpoints normally return it separately as `reasoning_content`, but it ends
@@ -85,11 +92,26 @@ def replace_template_variables(text: str, image: Image) -> str:
     return text
 
 
-def encode_image_as_data_url(pil_image: PilImage.Image) -> str:
+def encode_image_as_data_url(pil_image: PilImage.Image,
+                             is_source_jpeg: bool) -> str:
     buffer = BytesIO()
-    pil_image.save(buffer, format='PNG')
+    if (is_source_jpeg
+            or pil_image.width * pil_image.height > MAX_PNG_PIXEL_COUNT):
+        pil_image.save(buffer, format='JPEG', quality=JPEG_QUALITY)
+        mime_type = 'image/jpeg'
+    else:
+        pil_image.save(buffer, format='PNG')
+        mime_type = 'image/png'
     encoded = base64.b64encode(buffer.getvalue()).decode('utf-8')
-    return f'data:image/png;base64,{encoded}'
+    return f'data:{mime_type};base64,{encoded}'
+
+
+class RequestFailedError(RuntimeError):
+    """
+    The endpoint returned an error or closed the connection. This can be
+    caused by the image, such as when it is too large, so the request can be
+    retried with a smaller image.
+    """
 
 
 class CaptioningModel:
@@ -156,16 +178,18 @@ class CaptioningModel:
         return replace_template_variables(self.prompt, image)
 
     @staticmethod
-    def load_image(image: Image) -> PilImage.Image:
+    def load_image(image: Image) -> tuple[PilImage.Image, bool]:
+        """Return the image and whether the source file is a JPEG."""
         pil_image = PilImage.open(image.path)
+        is_source_jpeg = pil_image.format in JPEG_FORMATS
         # Rotate the image according to the orientation tag.
         pil_image = exif_transpose(pil_image)
         pil_image = pil_image.convert('RGB')
-        return pil_image
+        return pil_image, is_source_jpeg
 
-    def get_model_inputs(self, image_prompt: str, image: Image) -> dict:
-        pil_image = self.load_image(image)
-        image_data_url = encode_image_as_data_url(pil_image)
+    def get_model_inputs(self, image_prompt: str, pil_image: PilImage.Image,
+                         is_source_jpeg: bool) -> dict:
+        image_data_url = encode_image_as_data_url(pil_image, is_source_jpeg)
         messages = []
         if self.system_prompt.strip():
             messages.append({'role': 'system', 'content': self.system_prompt})
@@ -196,6 +220,11 @@ class CaptioningModel:
                                      json=payload, headers=self.get_headers(),
                                      timeout=REQUEST_TIMEOUT_SECONDS)
             response.raise_for_status()
+        except requests.ReadTimeout as exception:
+            # The endpoint accepted the request but did not respond in time.
+            # Retrying would likely take as long again, so stop instead.
+            raise RuntimeError(f'Request to {self.base_url} failed: '
+                               f'{exception}')
         except requests.RequestException as exception:
             error_response = exception.response
             is_rejected_reasoning_effort = (
@@ -204,8 +233,8 @@ class CaptioningModel:
                 and error_response.status_code == 400
                 and 'reasoning_effort' in error_response.text)
             if not is_rejected_reasoning_effort:
-                raise RuntimeError(f'Request to {self.base_url} failed: '
-                                   f'{exception}')
+                raise RequestFailedError(f'Request to {self.base_url} failed: '
+                                         f'{exception}')
             # Some endpoints reject the parameter instead of ignoring it, so
             # retry without it to still get a caption. It is also removed from
             # the generation parameters so that the retry happens once instead

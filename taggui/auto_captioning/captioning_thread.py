@@ -4,11 +4,20 @@ from time import perf_counter
 from PIL import UnidentifiedImageError
 from PySide6.QtCore import QModelIndex, QThread, Qt, Signal
 
-from auto_captioning.captioning_model import CaptioningModel
+from auto_captioning.captioning_model import (CaptioningModel,
+                                              RequestFailedError)
 from models.image_list_model import ImageListModel
 from utils.enums import CaptionPosition
 from utils.image import Image
 from utils.settings import get_tag_separator
+from utils.utils import pluralize
+
+# When a request fails, the image is resized to half its width and height and
+# sent again, up to this many times, before it is skipped.
+MAX_RETRY_COUNT = 2
+# Captioning stops when this many images in a row are skipped, because the
+# endpoint itself is then the likely problem.
+MAX_CONSECUTIVE_SKIPS = 3
 
 
 def add_caption_to_tags(tags: list[str], caption: str,
@@ -92,6 +101,8 @@ class CaptioningThread(QThread):
             are_multiple_images_selected, captioning_start_datetime)
         print(captioning_message)
         caption_position = self.caption_settings['caption_position']
+        skipped_image_names = []
+        consecutive_skipped_image_count = 0
         for i, image_index in enumerate(self.selected_image_indices):
             start_time = perf_counter()
             if self.is_canceled:
@@ -101,13 +112,43 @@ class CaptioningThread(QThread):
                                                       Qt.ItemDataRole.UserRole)
             image_prompt = model.get_image_prompt(image)
             try:
-                model_inputs = model.get_model_inputs(image_prompt, image)
+                pil_image, is_source_jpeg = model.load_image(image)
             except UnidentifiedImageError:
                 print(f'Skipping {image.path.name} because its file format is '
                       'not supported or it is a corrupted image.')
                 continue
-            caption, console_output_caption = model.generate_caption(
-                model_inputs, image_prompt)
+            for retry_count in range(MAX_RETRY_COUNT + 1):
+                if retry_count > 0:
+                    if self.is_canceled:
+                        print('Canceled captioning.')
+                        return
+                    # The endpoint may have rejected the image because it is
+                    # too large, so try again at half the width and height.
+                    pil_image = pil_image.reduce(2)
+                    print(f'Retrying {image.path.name} at '
+                          f'{pil_image.width}x{pil_image.height}.')
+                model_inputs = model.get_model_inputs(image_prompt, pil_image,
+                                                      is_source_jpeg)
+                try:
+                    caption, console_output_caption = model.generate_caption(
+                        model_inputs, image_prompt)
+                    break
+                except RequestFailedError as exception:
+                    print(exception)
+            else:
+                skipped_image_names.append(image.path.name)
+                consecutive_skipped_image_count += 1
+                print(f'Skipping {image.path.name} because captioning failed '
+                      f'{MAX_RETRY_COUNT + 1} times.')
+                if are_multiple_images_selected:
+                    self.progress_bar_update_requested.emit(i + 1)
+                if consecutive_skipped_image_count == MAX_CONSECUTIVE_SKIPS:
+                    self.is_error = True
+                    print(f'Stopped captioning because {MAX_CONSECUTIVE_SKIPS} '
+                          f'images in a row were skipped.')
+                    return
+                continue
+            consecutive_skipped_image_count = 0
             tags = add_caption_to_tags(image.tags, caption, caption_position)
             self.caption_generated.emit(image_index, caption, tags)
             if are_multiple_images_selected:
@@ -129,6 +170,11 @@ class CaptioningThread(QThread):
                   f'{format_duration(total_captioning_duration)} '
                   f'({average_captioning_duration:.1f} s/image) at '
                   f'{captioning_end_datetime.strftime("%Y-%m-%d %H:%M:%S")}.')
+        if skipped_image_names:
+            print(f'Skipped {len(skipped_image_names)} '
+                  f'{pluralize("image", len(skipped_image_names))} '
+                  f'because captioning failed: '
+                  f'{", ".join(skipped_image_names)}')
 
     def run(self):
         try:
