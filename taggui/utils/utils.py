@@ -1,7 +1,47 @@
 import sys
 from pathlib import Path
 
+from PySide6.QtCore import QFile
 from PySide6.QtWidgets import QMessageBox
+
+
+def move_to_trash(path: Path) -> bool:
+    """
+    Move a file to the trash (the Recycle Bin on Windows) and return whether it
+    succeeded.
+    """
+    if sys.platform != 'win32':
+        return QFile(str(path)).moveToTrash()
+    # `QFile.moveToTrash()` fails on Windows with "Unspecified error", so use
+    # the shell function directly.
+    import ctypes
+    from ctypes import wintypes
+
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [('hwnd', wintypes.HWND),
+                    ('wFunc', wintypes.UINT),
+                    ('pFrom', wintypes.LPCWSTR),
+                    ('pTo', wintypes.LPCWSTR),
+                    ('fFlags', ctypes.c_uint16),
+                    ('fAnyOperationsAborted', wintypes.BOOL),
+                    ('hNameMappings', ctypes.c_void_p),
+                    ('lpszProgressTitle', wintypes.LPCWSTR)]
+
+    FO_DELETE = 0x3
+    FOF_SILENT = 0x4
+    FOF_NOCONFIRMATION = 0x10
+    FOF_ALLOWUNDO = 0x40
+    FOF_NOERRORUI = 0x400
+    operation = SHFILEOPSTRUCTW()
+    operation.wFunc = FO_DELETE
+    # The list of paths must end with two null characters. The second one is
+    # added by `ctypes`.
+    operation.pFrom = str(Path(path).resolve()) + '\0'
+    operation.fFlags = (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
+                        | FOF_NOERRORUI)
+    result = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(operation))
+    return (result == 0 and not operation.fAnyOperationsAborted
+            and not Path(path).exists())
 
 
 def get_resource_path(unbundled_resource_path: Path) -> Path:

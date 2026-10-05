@@ -4,7 +4,7 @@ from functools import reduce
 from operator import or_
 from pathlib import Path
 
-from PySide6.QtCore import (QFile, QItemSelection, QItemSelectionModel,
+from PySide6.QtCore import (QItemSelection, QItemSelectionModel,
                             QItemSelectionRange, QModelIndex, QSize, QUrl, Qt,
                             Signal, Slot)
 from PySide6.QtGui import QDesktopServices
@@ -18,9 +18,9 @@ from pyparsing import (CaselessKeyword, CaselessLiteral, Group, OpAssoc,
 
 from models.proxy_image_list_model import ProxyImageListModel
 from utils.image import Image
-from utils.settings import get_settings
 from utils.settings_widgets import SettingsComboBox
-from utils.utils import get_confirmation_dialog_reply, pluralize
+from utils.utils import (get_confirmation_dialog_reply, move_to_trash,
+                         pluralize)
 
 
 def replace_filter_wildcards(filter_: str | list) -> str | list:
@@ -228,6 +228,11 @@ class ImageListView(QListView):
         selected_image_paths = [str(image.path) for image in selected_images]
         QApplication.clipboard().setText('\n'.join(selected_image_paths))
 
+    def get_loaded_directory(self) -> str:
+        image_list_model = self.proxy_image_list_model.sourceModel()
+        directory_path = image_list_model.directory_path
+        return str(directory_path) if directory_path else ''
+
     @Slot()
     def move_selected_images(self):
         selected_images = self.get_selected_images()
@@ -235,10 +240,8 @@ class ImageListView(QListView):
         caption = (f'Select directory to move {selected_image_count} selected '
                    f'{pluralize("Image", selected_image_count)} and '
                    f'{pluralize("caption", selected_image_count)} to')
-        settings = get_settings()
         move_directory_path = QFileDialog.getExistingDirectory(
-            parent=self, caption=caption,
-            dir=settings.value('directory_path', type=str))
+            parent=self, caption=caption, dir=self.get_loaded_directory())
         if not move_directory_path:
             return
         move_directory_path = Path(move_directory_path)
@@ -262,10 +265,8 @@ class ImageListView(QListView):
         caption = (f'Select directory to copy {selected_image_count} selected '
                    f'{pluralize("Image", selected_image_count)} and '
                    f'{pluralize("caption", selected_image_count)} to')
-        settings = get_settings()
         copy_directory_path = QFileDialog.getExistingDirectory(
-            parent=self, caption=caption,
-            dir=settings.value('directory_path', type=str))
+            parent=self, caption=caption, dir=self.get_loaded_directory())
         if not copy_directory_path:
             return
         copy_directory_path = Path(copy_directory_path)
@@ -293,14 +294,12 @@ class ImageListView(QListView):
         if reply != QMessageBox.StandardButton.Yes:
             return
         for image in selected_images:
-            image_file = QFile(image.path)
-            if not image_file.moveToTrash():
+            if not move_to_trash(image.path):
                 QMessageBox.critical(self, 'Error',
                                      f'Failed to delete {image.path}.')
             caption_file_path = image.path.with_suffix('.txt')
-            caption_file = QFile(caption_file_path)
-            if caption_file.exists():
-                if not caption_file.moveToTrash():
+            if caption_file_path.exists():
+                if not move_to_trash(caption_file_path):
                     QMessageBox.critical(self, 'Error',
                                          f'Failed to delete '
                                          f'{caption_file_path}.')
