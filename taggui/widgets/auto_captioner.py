@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 
 import requests
 from PySide6.QtCore import QModelIndex, Qt, Signal, Slot
@@ -9,7 +10,8 @@ from PySide6.QtWidgets import (QAbstractScrollArea, QDockWidget, QFormLayout,
                                QPushButton, QScrollArea, QSizePolicy,
                                QVBoxLayout, QWidget)
 
-from auto_captioning.captioning_thread import CaptioningThread
+from auto_captioning.captioning_thread import (CaptioningThread,
+                                               add_caption_to_tags)
 from dialogs.caption_multiple_images_dialog import CaptionMultipleImagesDialog
 from dialogs.cloud_captioning_consent_dialog import \
     CloudCaptioningConsentDialog
@@ -418,6 +420,21 @@ class AutoCaptioner(QDockWidget):
         alert.setText(text)
         alert.exec()
 
+    @Slot(str, str)
+    def add_generated_caption(self, image_path_string: str, caption: str):
+        image_path = Path(image_path_string)
+        image_index = self.image_list_model.get_image_index(image_path)
+        if image_index is None:
+            print(f'Discarded the caption for {image_path.name} because the '
+                  f'image was deleted or moved.')
+            return
+        image = self.image_list_model.data(image_index,
+                                           Qt.ItemDataRole.UserRole)
+        caption_position = (self.captioning_thread
+                            .caption_settings['caption_position'])
+        tags = add_caption_to_tags(image.tags, caption, caption_position)
+        self.caption_generated.emit(image_index, caption, tags)
+
     @Slot()
     def generate_captions(self):
         caption_settings = self.caption_settings_form.get_caption_settings()
@@ -458,7 +475,7 @@ class AutoCaptioner(QDockWidget):
         self.captioning_thread.clear_console_text_edit_requested.connect(
             self.console_text_edit.clear)
         self.captioning_thread.caption_generated.connect(
-            self.caption_generated)
+            self.add_generated_caption)
         self.captioning_thread.progress_bar_update_requested.connect(
             self.progress_bar.setValue)
         self.captioning_thread.finished.connect(

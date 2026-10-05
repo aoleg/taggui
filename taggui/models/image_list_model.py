@@ -489,6 +489,13 @@ class ImageListModel(QAbstractListModel):
                                   self.index(changed_image_indices[-1]))
         return len(changed_image_indices)
 
+    def get_image_index(self, image_path: Path) -> QModelIndex | None:
+        """Return the index of the image with the given path, if any."""
+        for row, image in enumerate(self.images):
+            if image.path == image_path:
+                return self.index(row)
+        return None
+
     def update_image_tags(self, image_index: QModelIndex, tags: list[str]):
         image: Image = self.data(image_index, Qt.ItemDataRole.UserRole)
         if image.tags == tags:

@@ -62,18 +62,21 @@ def format_duration(seconds: float) -> str:
 class CaptioningThread(QThread):
     text_outputted = Signal(str)
     clear_console_text_edit_requested = Signal()
-    # The image index, the caption, and the tags with the caption added. The
-    # third parameter must be declared as `list` instead of `list[str]` for it
-    # to work.
-    caption_generated = Signal(QModelIndex, str, list)
+    # The image path and the caption. The image is identified by its path
+    # because the directory can be reloaded during captioning, such as when
+    # images are deleted, which changes the image indices.
+    caption_generated = Signal(str, str)
     progress_bar_update_requested = Signal(int)
 
     def __init__(self, parent, image_list_model: ImageListModel,
                  selected_image_indices: list[QModelIndex],
                  caption_settings: dict, tag_separator: str):
         super().__init__(parent)
-        self.image_list_model = image_list_model
-        self.selected_image_indices = selected_image_indices
+        # Get the images now, in the main thread, because the indices become
+        # invalid if the directory is reloaded.
+        self.images: list[Image] = [
+            image_list_model.data(image_index, Qt.ItemDataRole.UserRole)
+            for image_index in selected_image_indices]
         self.caption_settings = caption_settings
         self.tag_separator = tag_separator
         self.is_error = False
@@ -94,25 +97,28 @@ class CaptioningThread(QThread):
             print('Canceled captioning.')
             return
         self.clear_console_text_edit_requested.emit()
-        selected_image_count = len(self.selected_image_indices)
+        selected_image_count = len(self.images)
         are_multiple_images_selected = selected_image_count > 1
         captioning_start_datetime = datetime.now()
         captioning_message = model.get_captioning_message(
             are_multiple_images_selected, captioning_start_datetime)
         print(captioning_message)
-        caption_position = self.caption_settings['caption_position']
         skipped_image_names = []
         consecutive_skipped_image_count = 0
-        for i, image_index in enumerate(self.selected_image_indices):
+        for i, image in enumerate(self.images):
             start_time = perf_counter()
             if self.is_canceled:
                 print('Canceled captioning.')
                 return
-            image: Image = self.image_list_model.data(image_index,
-                                                      Qt.ItemDataRole.UserRole)
             image_prompt = model.get_image_prompt(image)
             try:
                 pil_image, is_source_jpeg = model.load_image(image)
+            except FileNotFoundError:
+                print(f'Skipping {image.path.name} because it was deleted or '
+                      f'moved.')
+                if are_multiple_images_selected:
+                    self.progress_bar_update_requested.emit(i + 1)
+                continue
             except UnidentifiedImageError:
                 print(f'Skipping {image.path.name} because its file format is '
                       'not supported or it is a corrupted image.')
@@ -149,8 +155,7 @@ class CaptioningThread(QThread):
                     return
                 continue
             consecutive_skipped_image_count = 0
-            tags = add_caption_to_tags(image.tags, caption, caption_position)
-            self.caption_generated.emit(image_index, caption, tags)
+            self.caption_generated.emit(str(image.path), caption)
             if are_multiple_images_selected:
                 self.progress_bar_update_requested.emit(i + 1)
             if i == 0 and not are_multiple_images_selected:
