@@ -179,11 +179,14 @@ def get_preview_paths(folder: Path,
     return preview_path, mask_path
 
 
-def read_changed_paths(folder: Path, from_report: bool) -> list[Path]:
+def read_changed_paths(folder: Path, from_report: bool,
+                       output_folder: Path | None = None) -> list[Path]:
     """
     The images the last pipeline run changed (from `report.jsonl`) or the last
     dry run planned to change (from `plan.json`), as absolute paths. An image
-    the run wrote under another name is returned under that name.
+    the run wrote under another name is returned under that name. The report
+    of a run into a new folder names the written files relative to that
+    folder, so `output_folder` is where its changed images are returned.
     """
     pipeline_directory = get_pipeline_directory(folder)
     changed = []
@@ -198,6 +201,8 @@ def read_changed_paths(folder: Path, from_report: bool) -> list[Path]:
                 continue
             if entry.get('changed') and 'error' not in entry:
                 changed.append(entry.get('written') or entry['path'])
+        if output_folder is not None:
+            folder = output_folder
     else:
         plan_path = pipeline_directory / PLAN_FILE_NAME
         if not plan_path.is_file():

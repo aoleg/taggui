@@ -22,6 +22,7 @@ from utils.dataset_tools import (OVERRIDES_FILE_NAME, PASSES, PREVIEWS_DIRNAME,
                                  PipelineProcess, get_backup_path,
                                  get_pipeline_directory, read_changed_paths,
                                  resolve_dataset_tools)
+from utils.enums import CaptionPosition
 from utils.image import Image
 from utils.settings import DEFAULT_SETTINGS, get_settings
 from utils.settings_widgets import (FocusedScrollSettingsComboBox,
@@ -37,6 +38,13 @@ REFRAME_MODES = {'Best fit': 'best_fit', 'Square': 'square',
 PARALLEL_OUTPUT_SUFFIX = '_prepared'
 THREADS = 4
 CONSOLE_LINE_COUNT = 8
+# What the auto-captioner captions after a run: nothing, the images the run
+# changed, or every image in the image list.
+CAPTION_AFTER_RUN_NONE = 'None'
+CAPTION_AFTER_RUN_CHANGED = 'Changed images'
+CAPTION_AFTER_RUN_ALL = 'All listed images'
+CAPTION_AFTER_RUN_CHOICES = (CAPTION_AFTER_RUN_NONE, CAPTION_AFTER_RUN_CHANGED,
+                             CAPTION_AFTER_RUN_ALL)
 
 
 class DatasetTools(QDockWidget):
@@ -47,6 +55,9 @@ class DatasetTools(QDockWidget):
     # Emitted when a pipeline process ends, with the kind of run: `preview`,
     # `run`, `undo` or `undo_files`.
     run_finished = Signal(str)
+    # The images to caption after a run, as paths, and the caption position
+    # for that run (`None` keeps the auto-captioner's setting).
+    captioning_requested = Signal(list, object)
 
     def __init__(self, image_list_model: ImageListModel,
                  image_list: ImageList):
@@ -286,6 +297,26 @@ class DatasetTools(QDockWidget):
             key='pipeline_save_png', default=False,
             text='Save changed images as PNG')
         layout.addWidget(self.save_png_check_box)
+        layout.addWidget(self.create_horizontal_line())
+        caption_row = QHBoxLayout()
+        caption_label = QLabel('After the run, caption:')
+        self.caption_after_run_combo_box = FocusedScrollSettingsComboBox(
+            key='pipeline_caption_after_run', default=CAPTION_AFTER_RUN_NONE)
+        self.caption_after_run_combo_box.addItems(
+            list(CAPTION_AFTER_RUN_CHOICES))
+        tooltip = ('When a run finishes, the auto-captioner starts on these '
+                   'images with its own settings, without asking. A run into '
+                   'a new folder loads that folder first. For "Changed '
+                   'images" the caption position is "Overwrite all tags" for '
+                   'that run only, because the prompt already feeds the old '
+                   'caption back through {tags}; the setting of the '
+                   'auto-captioner stays as it is.')
+        caption_label.setToolTip(tooltip)
+        self.caption_after_run_combo_box.setToolTip(tooltip)
+        caption_row.addWidget(caption_label)
+        caption_row.addWidget(self.caption_after_run_combo_box)
+        caption_row.addStretch()
+        layout.addLayout(caption_row)
         return group
 
     def create_review_group(self) -> QGroupBox:
@@ -613,6 +644,8 @@ class DatasetTools(QDockWidget):
         job = self.process.job or {}
         is_parallel = (job.get('output') or {}).get('mode') == 'parallel'
         if kind in ('run', 'undo', 'undo_files') and not is_parallel:
+            # The reload rebuilds the image list from the files, so the
+            # thumbnails and the viewer show the images as they are now.
             self.directory_reload_requested.emit()
             existing_paths = [path for path in self.selected_paths_before_run
                               if path.exists()]
@@ -620,15 +653,63 @@ class DatasetTools(QDockWidget):
                 self.select_images_requested.emit(existing_paths)
         self.update_buttons()
         self.run_finished.emit(kind or '')
-        if (kind == 'run' and is_parallel and not was_cancelled
-                and exit_code == 0):
-            output_folder = Path(job['output']['folder'])
-            reply = QMessageBox.question(
-                self, 'Run finished',
-                f'The prepared dataset is in {output_folder}. Load it?',
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                self.load_directory_requested.emit(output_folder)
+        if kind != 'run' or was_cancelled or exit_code != 0:
+            return
+        caption_choice = self.caption_after_run_combo_box.currentText()
+        if not is_parallel:
+            self.caption_after_run(caption_choice)
+            return
+        output_folder = Path(job['output']['folder'])
+        if caption_choice == CAPTION_AFTER_RUN_NONE:
+            question = f'The prepared dataset is in {output_folder}. Load it?'
+        else:
+            question = (f'The prepared dataset is in {output_folder}. Load '
+                        f'it and caption {caption_choice.lower()}?')
+        reply = QMessageBox.question(
+            self, 'Run finished', question,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        # The report of the run is in the backup folder of the dataset the
+        # run read, so the changed images are read before that folder is
+        # replaced by the loaded one.
+        changed_paths = read_changed_paths(self.directory_path,
+                                           from_report=True,
+                                           output_folder=output_folder)
+        self.load_directory_requested.emit(output_folder)
+        self.caption_after_run(caption_choice, changed_paths)
+
+    def caption_after_run(self, caption_choice: str,
+                          changed_paths: list[Path] | None = None):
+        """
+        Select the images the combo box names and hand them to the
+        auto-captioner. The changed images come from the report of the run
+        unless given; the listed images are the image list after the reload.
+        """
+        if caption_choice == CAPTION_AFTER_RUN_NONE:
+            return
+        if caption_choice == CAPTION_AFTER_RUN_CHANGED:
+            if changed_paths is None:
+                changed_paths = read_changed_paths(self.directory_path,
+                                                   from_report=True)
+            paths = changed_paths
+            # The prompt feeds the old caption back as context, so the new
+            # caption replaces it; the setting of the auto-captioner is not
+            # touched.
+            caption_position = CaptionPosition.OVERWRITE_ALL_TAGS
+        else:
+            paths = [image.path for image in self.image_list_model.images]
+            caption_position = None
+        paths = [path for path in paths if path.exists()]
+        if not paths:
+            self.append_console_text(
+                f'Nothing to caption: no {caption_choice.lower()}.')
+            return
+        self.select_images_requested.emit(paths)
+        self.append_console_text(
+            f'Captioning {len(paths)} {pluralize("image", len(paths))} '
+            f'({caption_choice.lower()})...')
+        self.captioning_requested.emit(paths, caption_position)
 
     # Review
 

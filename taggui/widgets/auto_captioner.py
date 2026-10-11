@@ -439,32 +439,84 @@ class AutoCaptioner(QDockWidget):
         tags = add_caption_to_tags(image.tags, caption, caption_position)
         self.caption_generated.emit(image_index, caption, tags)
 
+    def get_start_blocker_message_now(self) -> str | None:
+        """Why captioning cannot start now, or `None` when it can."""
+        if self.is_captioning:
+            return 'Captioning is already running.'
+        return self.get_start_blocker_message()
+
     @Slot()
     def generate_captions(self):
-        start_blocker_message = self.get_start_blocker_message()
+        """Caption the selected images, asking first when there are several."""
+        start_blocker_message = self.get_start_blocker_message_now()
         if start_blocker_message:
             QMessageBox.information(self, 'Auto-Captioner',
                                     start_blocker_message)
             return
+        self.start_captioning(self.image_list.get_selected_image_indices(),
+                              ask_for_confirmation=True)
+
+    def start_captioning_images(
+            self, image_paths: list[Path],
+            caption_position: CaptionPosition | None = None) -> str | None:
+        """
+        Caption the images with the given paths without the confirmation
+        dialog, as the dataset tools do after a run. `caption_position`
+        replaces the setting of the form for this run only. Returns why
+        nothing was started, or `None` when captioning started.
+        """
+        start_blocker_message = self.get_start_blocker_message_now()
+        if start_blocker_message:
+            return start_blocker_message
+        image_indices = []
+        for image_path in image_paths:
+            image_index = self.image_list_model.get_image_index(image_path)
+            if image_index is not None:
+                image_indices.append(image_index)
+        if not image_indices:
+            return 'None of the images is in the image list.'
+        if not self.start_captioning(image_indices, ask_for_confirmation=False,
+                                     caption_position=caption_position):
+            return 'Captioning was not started.'
+        return None
+
+    def start_captioning(self, image_indices: list[QModelIndex],
+                         ask_for_confirmation: bool,
+                         caption_position: CaptionPosition | None = None
+                         ) -> bool:
+        """
+        Start the captioning thread for the images at the given indices.
+        Returns whether it started: the user may decline the cloud consent or
+        the confirmation of captioning several images.
+        """
         caption_settings = self.caption_settings_form.get_caption_settings()
+        if caption_position is not None:
+            caption_settings['caption_position'] = caption_position
         if (caption_settings['is_cloud_backend']
                 and not self.cloud_captioning_consent_given):
             consent_dialog = CloudCaptioningConsentDialog()
             reply = consent_dialog.exec()
             if reply != QMessageBox.StandardButton.Ok:
-                return
+                return False
             self.cloud_captioning_consent_given = True
-        selected_image_indices = self.image_list.get_selected_image_indices()
-        selected_image_count = len(selected_image_indices)
-        show_alert_when_finished = False
-        if selected_image_count > 1:
+        selected_image_count = len(image_indices)
+        if ask_for_confirmation and selected_image_count > 1:
             confirmation_dialog = CaptionMultipleImagesDialog(
                 selected_image_count)
             reply = confirmation_dialog.exec()
             if reply != QMessageBox.StandardButton.Yes:
-                return
+                return False
             show_alert_when_finished = (confirmation_dialog
                                         .show_alert_check_box.isChecked())
+        elif ask_for_confirmation:
+            show_alert_when_finished = False
+        else:
+            # A run started by the dataset tools ends while the user may be
+            # away, so the alert follows the setting of the confirmation
+            # dialog.
+            show_alert_when_finished = self.settings.value(
+                'show_alert_when_captioning_finished', defaultValue=True,
+                type=bool)
         self.set_is_captioning(True)
         if caption_settings['caption_position'] != CaptionPosition.DO_NOT_ADD:
             self.image_list_model.add_to_undo_stack(
@@ -477,8 +529,8 @@ class AutoCaptioner(QDockWidget):
             self.progress_bar.show()
         tag_separator = get_tag_separator()
         self.captioning_thread = CaptioningThread(
-            self, self.image_list_model, selected_image_indices,
-            caption_settings, tag_separator)
+            self, self.image_list_model, image_indices, caption_settings,
+            tag_separator)
         self.captioning_thread.text_outputted.connect(
             self.update_console_text_edit)
         self.captioning_thread.clear_console_text_edit_requested.connect(
@@ -500,3 +552,4 @@ class AutoCaptioner(QDockWidget):
         sys.stdout = self.captioning_thread
         sys.stderr = self.captioning_thread
         self.captioning_thread.start()
+        return True

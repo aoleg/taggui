@@ -288,6 +288,19 @@ class MainWindow(QMainWindow):
         self.image_list_selection_model.select(
             item_selection, QItemSelectionModel.SelectionFlag.ClearAndSelect)
 
+    @Slot(list, object)
+    def start_captioning_after_run(self, image_paths: list[Path],
+                                   caption_position):
+        """
+        Start the auto-captioner on the images a dataset tools run produced.
+        The reason it did not start goes to the console of the dock.
+        """
+        message = self.auto_captioner.start_captioning_images(
+            image_paths, caption_position)
+        if message:
+            self.dataset_tools.append_console_text(
+                f'Captioning did not start: {message}')
+
     def get_current_image(self) -> Image | None:
         proxy_index = self.image_list_selection_model.currentIndex()
         if not proxy_index.isValid():
@@ -642,6 +655,8 @@ class MainWindow(QMainWindow):
         self.dataset_tools.select_images_requested.connect(self.select_images)
         self.dataset_tools.run_finished.connect(
             lambda _: self.image_viewer.reload_current_image())
+        self.dataset_tools.captioning_requested.connect(
+            self.start_captioning_after_run)
         self.dataset_tools.visibilityChanged.connect(
             lambda: self.toggle_dataset_tools_action.setChecked(
                 self.dataset_tools.isVisible()))

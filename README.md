@@ -169,6 +169,7 @@ changed image is then written once, as JPEG at quality 97 or as PNG with
   dataset, changed and unchanged images with all captions, to the named
   folder (the dataset folder with `_prepared` added, by default) and offers to
   load it. Ticking `Reframe` switches the default to `New folder`.
+  The image list and the viewer show the images as they are after a run or an undo.
 - `Undo Last Run` returns the images of the last run to their originals.
   Right-clicking images in the image list and choosing `Undo` restores just
   those images; their backup captions are restored too, and when an image had
@@ -185,6 +186,8 @@ changed image is then written once, as JPEG at quality 97 or as PNG with
 `Preview` can run while the auto-captioner is working, because it only reads
 the images. `Run` and `Undo` wait for the captioner, and the captioner waits
 for them.
+
+`After the run, caption:` chains the auto-captioner to a run. It is `None` by default; with `Changed images` or `All listed images`, the captioner starts on those images when a run finishes, with its own settings and without asking, and a run into a new folder loads that folder first. For the changed images the caption position is `Overwrite all tags` for that run only, because the prompt already feeds the old caption back through `{tags}`; the captioner's own setting is not touched.
 
 The output folders of the tools (`_controls`, the old in-folder `_backup`,
 `_duplicates`, `_prep`, `_reframed`, `masks` and the others) and any folder
