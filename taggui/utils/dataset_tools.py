@@ -21,11 +21,18 @@ from utils.settings import DEFAULT_SETTINGS, get_settings
 # `_backup` inside the folder; the next run of a tool moves that folder out.
 BACKUP_SUFFIX = '_backup'
 OLD_BACKUP_DIRNAME = '_backup'
-# The file that marks a folder as the backup folder of the dataset tools.
+# The file that marks a folder the dataset tools made next to a dataset
+# (`<dataset>_backup`, `<dataset>_duplicates`, `_prep_<dataset>`).
 BACKUP_MARK = '_dataset_tools.json'
 RUN_DIRNAME = '_pipeline'
 PREVIEWS_DIRNAME = 'previews'
-MASKS_DIRNAME = 'masks'
+# The face mask of `<dir>/<stem>.<ext>` is `<dir>/_controls/<stem>.png`, a
+# folder AI Toolkit never trains; until 2026-10-11 it was `<dir>/masks/`.
+MASKS_DIRNAME = '_controls'
+OLD_MASKS_DIRNAME = 'masks'
+# A mask may have any of these extensions; AI Toolkit reads the first one that
+# exists for the image's name, in this order, and so does the preview.
+MASK_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp')
 JOB_FILE_NAME = 'job.json'
 PLAN_FILE_NAME = 'plan.json'
 REPORT_FILE_NAME = 'report.jsonl'
@@ -164,9 +171,11 @@ def get_preview_paths(folder: Path,
         if candidate.is_file():
             preview_path = candidate
             break
-    mask_path = image_path.parent / MASKS_DIRNAME / (image_path.stem + '.png')
-    if not mask_path.is_file():
-        mask_path = None
+    mask_path = next(
+        (candidate for directory_name in (MASKS_DIRNAME, OLD_MASKS_DIRNAME)
+         for extension in MASK_EXTENSIONS
+         if (candidate := image_path.parent / directory_name
+             / (image_path.stem + extension)).is_file()), None)
     return preview_path, mask_path
 
 

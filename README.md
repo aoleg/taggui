@@ -146,7 +146,7 @@ The stages run in this order, each with at most two options:
 | Remove watermarks | finds watermarks and paints them out, or cuts them off (`Cut off`) |
 | Reframe photos of people | crops to the subject (a person or a group, without passers-by) in a training aspect ratio; `Best fit` picks the tightest of seven ratios, `Square` always crops 1:1 and may cut below the hips, `Closest aspect ratio` keeps the photo's own ratio |
 | Clean JPEG artifacts | restores images saved below the quality threshold with FBCNN, only where the restoration removes enough damage |
-| Face masks | writes a loss mask per image into a `masks` folder next to it, white where the training loss counts and black over the faces; `Include hair` extends the mask upward and `Invert` trains only the faces |
+| Face masks | writes a loss mask per image into a `_controls` folder next to it (set AI Toolkit's `mask_path` to that folder; AI Toolkit never trains a `_controls` folder as images), white where the training loss counts and black over the faces; `Include hair` extends the mask upward and `Invert` trains only the faces |
 
 JPEG images are cropped losslessly unless a stage changes their pixels; a
 changed image is then written once, as JPEG at quality 97 or as PNG with
@@ -186,9 +186,10 @@ changed image is then written once, as JPEG at quality 97 or as PNG with
 the images. `Run` and `Undo` wait for the captioner, and the captioner waits
 for them.
 
-The output folders of the tools (`masks`, `_reframed`, an old `_backup` and
-the others) and any backup folder of the tools (marked by a
-`_dataset_tools.json` file) are never shown in the image list. `Hide _ folders in the image list`
+The output folders of the tools (`_controls`, the old in-folder `_backup`,
+`_duplicates`, `_prep`, `_reframed`, `masks` and the others) and any folder
+the tools made next to a dataset (marked by a `_dataset_tools.json` file) are
+never shown in the image list. `Hide _ folders in the image list`
 also hides every other subfolder whose name starts with an underscore.
 
 ## Advanced Image List Filtering

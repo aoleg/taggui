@@ -22,14 +22,18 @@ UNDO_STACK_SIZE = 32
 
 
 # Subfolders that are never listed: the output folders of the dataset tools.
-# `_reframed` holds a copy of every image of the dataset, so listing it under
-# its parent would show each image twice. It is captioned by loading it as the
-# dataset itself: the loaded folder is never filtered, only its subfolders.
-# The backup folder of a tool run on a subfolder (`<subfolder>_backup`, next to
-# it) is recognized by its mark file, whatever its name.
+# `_controls` holds the face masks (and AI Toolkit's own control images). The
+# other names are the old places of folders that now go next to the dataset
+# (`_backup`, `_duplicates`, `_prep`, `_reframed`, `_uncaptioned`, `masks`,
+# `faces`), kept for datasets the tools have not moved out yet. `_reframed`
+# holds a copy of every image of the dataset; the reframed copy is captioned
+# by loading it as the dataset itself: the loaded folder is never filtered,
+# only its subfolders. A folder the tools made next to a subfolder
+# (`<subfolder>_backup`, `<subfolder>_duplicates`, `_prep_<subfolder>`) is
+# recognized by its mark file, whatever its name.
 ALWAYS_HIDDEN_FOLDERS = frozenset({
     '_backup', '_duplicates', '_prep', '_classify', '_embeddings', '_pipeline',
-    '_reframed', 'masks', 'faces'})
+    '_reframed', '_uncaptioned', '_controls', 'masks', 'faces'})
 
 
 def is_hidden_folder(path: Path, hide_underscore_folders: bool) -> bool:

@@ -218,7 +218,7 @@ class DatasetTools(QDockWidget):
             default=DEFAULT_SETTINGS['hide_underscore_folders'],
             text='Hide _ folders in the image list')
         self.hide_underscore_folders_check_box.setToolTip(
-            'The output folders of the tools (masks, _reframed and the '
+            'The output folders of the tools (_controls, _reframed and the '
             'others) are always hidden. This also hides every other '
             'subfolder whose name starts with an underscore.')
         self.hide_underscore_folders_check_box.stateChanged.connect(
