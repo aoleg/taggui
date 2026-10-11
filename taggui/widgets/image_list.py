@@ -100,7 +100,8 @@ class SelectionMode(str, Enum):
 class ImageListView(QListView):
     tags_paste_requested = Signal(list, list)
     directory_reload_requested = Signal()
-    # The selected images whose originals should be restored from `_backup`.
+    # The selected images whose originals should be restored from the
+    # backup folder of the dataset tools.
     undo_images_requested = Signal(list)
 
     def __init__(self, parent, proxy_image_list_model: ProxyImageListModel,
@@ -149,7 +150,7 @@ class ImageListView(QListView):
         self.open_image_action = self.addAction('Open Image in Default App')
         self.open_image_action.setShortcut('Ctrl+O')
         self.open_image_action.triggered.connect(self.open_image)
-        # Restores the originals of the selected images from the `_backup`
+        # Restores the originals of the selected images from the backup
         # folder of the dataset tools. Enabled only when at least one
         # selected image has a backup; the check is set by the main window.
         self.undo_images_action = self.addAction('Undo')

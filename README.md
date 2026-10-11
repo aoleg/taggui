@@ -161,8 +161,11 @@ changed image is then written once, as JPEG at quality 97 or as PNG with
   sheets of the border and cleanup stages open with `Open Border Sheets` and
   `Open Cleanup Sheets`.
 - `Run` applies the stages. `In place` writes over the images and copies each
-  changed original with its caption to the `_backup` folder first, once per
-  image, however many stages change it. `New folder` writes the whole
+  changed original with its caption to the backup folder first, once per
+  image, however many stages change it. The backup folder is
+  `<dataset>_backup`, next to the dataset folder and outside it, so a trainer
+  that reads every subfolder does not train on the originals. An old `_backup`
+  folder inside the dataset is moved there by the next preview or run. `New folder` writes the whole
   dataset, changed and unchanged images with all captions, to the named
   folder (the dataset folder with `_prepared` added, by default) and offers to
   load it. Ticking `Reframe` switches the default to `New folder`.
@@ -183,8 +186,9 @@ changed image is then written once, as JPEG at quality 97 or as PNG with
 the images. `Run` and `Undo` wait for the captioner, and the captioner waits
 for them.
 
-The output folders of the tools (`_backup`, `masks`, `_reframed` and the
-others) are never shown in the image list. `Hide _ folders in the image list`
+The output folders of the tools (`masks`, `_reframed`, an old `_backup` and
+the others) and any backup folder of the tools (marked by a
+`_dataset_tools.json` file) are never shown in the image list. `Hide _ folders in the image list`
 also hides every other subfolder whose name starts with an underscore.
 
 ## Advanced Image List Filtering

@@ -13,6 +13,7 @@ from PySide6.QtCore import (QAbstractListModel, QModelIndex, QSize, Qt, Signal,
 from PySide6.QtGui import QIcon, QImageReader, QPixmap
 from PySide6.QtWidgets import QMessageBox
 
+from utils.dataset_tools import BACKUP_MARK
 from utils.image import Image
 from utils.settings import DEFAULT_SETTINGS, get_settings
 from utils.utils import get_confirmation_dialog_reply, pluralize
@@ -24,6 +25,8 @@ UNDO_STACK_SIZE = 32
 # `_reframed` holds a copy of every image of the dataset, so listing it under
 # its parent would show each image twice. It is captioned by loading it as the
 # dataset itself: the loaded folder is never filtered, only its subfolders.
+# The backup folder of a tool run on a subfolder (`<subfolder>_backup`, next to
+# it) is recognized by its mark file, whatever its name.
 ALWAYS_HIDDEN_FOLDERS = frozenset({
     '_backup', '_duplicates', '_prep', '_classify', '_embeddings', '_pipeline',
     '_reframed', 'masks', 'faces'})
@@ -31,7 +34,7 @@ ALWAYS_HIDDEN_FOLDERS = frozenset({
 
 def is_hidden_folder(path: Path, hide_underscore_folders: bool) -> bool:
     name = path.name.lower()
-    if name in ALWAYS_HIDDEN_FOLDERS:
+    if name in ALWAYS_HIDDEN_FOLDERS or (path / BACKUP_MARK).is_file():
         return True
     return hide_underscore_folders and name.startswith('_')
 

@@ -218,8 +218,8 @@ class DatasetTools(QDockWidget):
             default=DEFAULT_SETTINGS['hide_underscore_folders'],
             text='Hide _ folders in the image list')
         self.hide_underscore_folders_check_box.setToolTip(
-            'The output folders of the tools (_backup, masks, _reframed and '
-            'the others) are always hidden. This also hides every other '
+            'The output folders of the tools (masks, _reframed and the '
+            'others) are always hidden. This also hides every other '
             'subfolder whose name starts with an underscore.')
         self.hide_underscore_folders_check_box.stateChanged.connect(
             lambda _: self.directory_reload_requested.emit())
@@ -265,7 +265,7 @@ class DatasetTools(QDockWidget):
         layout.addLayout(scope_row)
         layout.addWidget(self.create_horizontal_line())
         self.in_place_radio_button = QRadioButton(
-            'In place (originals go to _backup)')
+            'In place (originals go to <folder>_backup)')
         self.in_place_radio_button.setChecked(True)
         layout.addWidget(self.in_place_radio_button)
         new_folder_row = QHBoxLayout()
@@ -516,8 +516,8 @@ class DatasetTools(QDockWidget):
             reply = QMessageBox.question(
                 self, 'Run Dataset Tools',
                 f'Change {scope} in place? The originals of the changed '
-                f'images go to the _backup folder, and Undo Last Run puts '
-                f'them back.',
+                f'images go to the {Path(job["folder"]).name}_backup folder '
+                f'next to it, and Undo Last Run puts them back.',
                 QMessageBox.StandardButton.Yes
                 | QMessageBox.StandardButton.Cancel)
             if reply != QMessageBox.StandardButton.Yes:
@@ -735,7 +735,7 @@ class DatasetTools(QDockWidget):
                 captions_without_backup_count += 1
         if not relative_paths:
             self.show_message('None of the selected images has an original '
-                              'in the _backup folder.')
+                              'in the backup folder.')
             return
         delete_captions = False
         if captions_without_backup_count:

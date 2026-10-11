@@ -5,7 +5,9 @@ into signals. Nothing from dataset_tools is imported; the tool runs in its
 own virtual environment as a subprocess.
 """
 import json
+import os
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,7 +15,14 @@ from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 
 from utils.settings import DEFAULT_SETTINGS, get_settings
 
-BACKUP_DIRNAME = '_backup'
+# The dataset tools keep the originals and their run folders in
+# `<folder>_backup` next to the dataset folder, outside it, so a trainer that
+# walks every subfolder never sees them. Until 2026-10-11 they were in
+# `_backup` inside the folder; the next run of a tool moves that folder out.
+BACKUP_SUFFIX = '_backup'
+OLD_BACKUP_DIRNAME = '_backup'
+# The file that marks a folder as the backup folder of the dataset tools.
+BACKUP_MARK = '_dataset_tools.json'
 RUN_DIRNAME = '_pipeline'
 PREVIEWS_DIRNAME = 'previews'
 MASKS_DIRNAME = 'masks'
@@ -93,29 +102,47 @@ def resolve_dataset_tools(
     return DatasetToolsEnvironment(root=root, python=python, script=script)
 
 
+def get_backup_directories(folder: Path) -> list[Path]:
+    """
+    Where the originals of the folder can be: `<folder>_backup` next to it
+    first, then the old `_backup` inside it, for a folder no tool has run on
+    since the backup moved out.
+    """
+    return [folder.with_name(folder.name + BACKUP_SUFFIX),
+            folder / OLD_BACKUP_DIRNAME]
+
+
 def get_pipeline_directory(folder: Path) -> Path:
-    return folder / BACKUP_DIRNAME / RUN_DIRNAME
+    """
+    The run folder of the pipeline: in `<folder>_backup`, or in the old
+    `_backup` while only that one exists.
+    """
+    backup_directory, old_backup_directory = get_backup_directories(folder)
+    if not backup_directory.is_dir() and old_backup_directory.is_dir():
+        return old_backup_directory / RUN_DIRNAME
+    return backup_directory / RUN_DIRNAME
 
 
 def get_backup_path(folder: Path, image_path: Path) -> Path | None:
     """
-    The backup of an image, if there is one: the untouched original under
-    `_backup`, under the same relative path. An image the pipeline wrote as
-    PNG keeps its stem, so the backup is looked for with the JPEG suffixes
-    as well.
+    The backup of an image, if there is one: the untouched original in the
+    backup folder, under the same relative path. An image the pipeline wrote
+    as PNG keeps its stem, so the backup is looked for with the JPEG
+    suffixes as well.
     """
     try:
         relative_path = image_path.relative_to(folder)
     except ValueError:
         return None
-    backup_path = folder / BACKUP_DIRNAME / relative_path
-    if backup_path.is_file():
-        return backup_path
-    if image_path.suffix.lower() == '.png':
-        for suffix in ('.jpg', '.jpeg', '.jpe', '.jfif', '.JPG', '.JPEG'):
-            candidate = backup_path.with_suffix(suffix)
-            if candidate.is_file():
-                return candidate
+    for backup_directory in get_backup_directories(folder):
+        backup_path = backup_directory / relative_path
+        if backup_path.is_file():
+            return backup_path
+        if image_path.suffix.lower() == '.png':
+            for suffix in ('.jpg', '.jpeg', '.jpe', '.jfif', '.JPG', '.JPEG'):
+                candidate = backup_path.with_suffix(suffix)
+                if candidate.is_file():
+                    return candidate
     return None
 
 
@@ -238,10 +265,12 @@ class PipelineProcess(QObject):
               extra_arguments: list[str] | None = None) -> bool:
         if self.is_running():
             return False
-        folder = Path(job['folder'])
-        pipeline_directory = get_pipeline_directory(folder)
-        pipeline_directory.mkdir(parents=True, exist_ok=True)
-        job_path = pipeline_directory / JOB_FILE_NAME
+        # The job file goes to the temporary folder, not to the run folder
+        # of the pipeline: the pipeline makes its backup folder itself (and
+        # moves an old `_backup` into it), then keeps a copy of the job there.
+        job_directory = Path(tempfile.gettempdir()) / 'taggui'
+        job_directory.mkdir(parents=True, exist_ok=True)
+        job_path = job_directory / f'pipeline_{os.getpid()}_{JOB_FILE_NAME}'
         job_path.write_text(json.dumps(job, ensure_ascii=False, indent=1),
                             encoding='utf-8')
         self.job = job
