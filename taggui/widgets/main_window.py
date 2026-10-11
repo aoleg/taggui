@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from PySide6.QtCore import QKeyCombination, QModelIndex, QUrl, Qt, Slot
+from PySide6.QtCore import (QItemSelection, QItemSelectionModel,
+                            QItemSelectionRange, QKeyCombination, QModelIndex,
+                            QUrl, Qt, Slot)
 from PySide6.QtGui import (QAction, QCloseEvent, QDesktopServices, QIcon,
                            QKeySequence, QPixmap, QShortcut)
 from PySide6.QtWidgets import (QApplication, QFileDialog, QMainWindow,
@@ -15,6 +17,7 @@ from models.image_tag_list_model import ImageTagListModel
 from models.proxy_image_list_model import ProxyImageListModel
 from models.tag_counter_model import TagCounterModel
 from utils.big_widgets import BigPushButton
+from utils.dataset_tools import get_backup_path, get_preview_paths
 from utils.image import Image
 from utils.key_press_forwarder import KeyPressForwarder
 from utils.settings import DEFAULT_SETTINGS, get_settings, get_tag_separator
@@ -22,6 +25,7 @@ from utils.shortcut_remover import ShortcutRemover
 from utils.utils import get_resource_path, pluralize
 from widgets.all_tags_editor import AllTagsEditor
 from widgets.auto_captioner import AutoCaptioner
+from widgets.dataset_tools import DatasetTools
 from widgets.image_list import ImageList
 from widgets.image_tags_editor import ImageTagsEditor
 from widgets.image_viewer import ImageViewer
@@ -78,6 +82,11 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,
                            self.auto_captioner)
         self.tabifyDockWidget(self.all_tags_editor, self.auto_captioner)
+        self.dataset_tools = DatasetTools(self.image_list_model,
+                                          self.image_list)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,
+                           self.dataset_tools)
+        self.tabifyDockWidget(self.auto_captioner, self.dataset_tools)
         self.all_tags_editor.raise_()
         # Set default widths for the dock widgets.
         # Temporarily set a size for the window so that the dock widgets can be
@@ -102,6 +111,10 @@ class MainWindow(QMainWindow):
         self.toggle_all_tags_editor_action = QAction('All Tags', parent=self)
         self.toggle_auto_captioner_action = QAction('Auto-Captioner',
                                                     parent=self)
+        self.toggle_dataset_tools_action = QAction('Dataset Tools',
+                                                   parent=self)
+        self.show_pipeline_preview_action = QAction('Show Pipeline Preview',
+                                                    parent=self)
         self.create_menus()
 
         self.image_list_selection_model = (self.image_list.list_view
@@ -112,6 +125,7 @@ class MainWindow(QMainWindow):
         self.connect_image_tags_editor_signals()
         self.connect_all_tags_editor_signals()
         self.connect_auto_captioner_signals()
+        self.connect_dataset_tools_signals()
         # Forward any unhandled image changing key presses to the image list.
         key_press_forwarder = KeyPressForwarder(
             parent=self, target=self.image_list.list_view,
@@ -216,6 +230,7 @@ class MainWindow(QMainWindow):
         self.reload_directory_action.setDisabled(False)
         self.image_tags_editor.tag_input_box.setDisabled(False)
         self.auto_captioner.start_cancel_button.setDisabled(False)
+        self.dataset_tools.set_directory(self.directory_path)
 
     @Slot()
     def select_and_load_directory(self):
@@ -250,6 +265,35 @@ class MainWindow(QMainWindow):
     def show_settings_dialog(self):
         settings_dialog = SettingsDialog(parent=self)
         settings_dialog.exec()
+
+    @Slot(list)
+    def select_images(self, image_paths: list[Path]):
+        """Select the images with the given paths in the image list."""
+        item_selection = QItemSelection()
+        first_proxy_index = None
+        for image_path in image_paths:
+            image_index = self.image_list_model.get_image_index(image_path)
+            if image_index is None:
+                continue
+            proxy_index = self.proxy_image_list_model.mapFromSource(
+                image_index)
+            if not proxy_index.isValid():
+                continue
+            if first_proxy_index is None:
+                first_proxy_index = proxy_index
+            item_selection.append(QItemSelectionRange(proxy_index))
+        if first_proxy_index is None:
+            return
+        self.image_list.list_view.setCurrentIndex(first_proxy_index)
+        self.image_list_selection_model.select(
+            item_selection, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+
+    def get_current_image(self) -> Image | None:
+        proxy_index = self.image_list_selection_model.currentIndex()
+        if not proxy_index.isValid():
+            return None
+        return self.proxy_image_list_model.data(proxy_index,
+                                                Qt.ItemDataRole.UserRole)
 
     @Slot()
     def show_find_and_replace_dialog(self):
@@ -372,6 +416,16 @@ class MainWindow(QMainWindow):
         self.toggle_image_tags_editor_action.setCheckable(True)
         self.toggle_all_tags_editor_action.setCheckable(True)
         self.toggle_auto_captioner_action.setCheckable(True)
+        self.toggle_dataset_tools_action.setCheckable(True)
+        self.toggle_dataset_tools_action.triggered.connect(
+            lambda is_checked: self.dataset_tools.setVisible(is_checked))
+        self.show_pipeline_preview_action.setCheckable(True)
+        self.show_pipeline_preview_action.setShortcut('Ctrl+P')
+        self.show_pipeline_preview_action.setToolTip(
+            'Show the dataset tools preview of the current image: the '
+            'reframe verdict, the watermark mask, or the face mask in red.')
+        self.show_pipeline_preview_action.triggered.connect(
+            self.image_viewer.set_preview_shown)
         self.toggle_image_list_action.triggered.connect(
             lambda is_checked: self.image_list.setVisible(is_checked))
         self.toggle_image_tags_editor_action.triggered.connect(
@@ -384,6 +438,9 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.toggle_image_tags_editor_action)
         view_menu.addAction(self.toggle_all_tags_editor_action)
         view_menu.addAction(self.toggle_auto_captioner_action)
+        view_menu.addAction(self.toggle_dataset_tools_action)
+        view_menu.addSeparator()
+        view_menu.addAction(self.show_pipeline_preview_action)
 
         help_menu = menu_bar.addMenu('Help')
         open_github_repository_action = QAction('GitHub', parent=self)
@@ -567,6 +624,36 @@ class MainWindow(QMainWindow):
         self.auto_captioner.visibilityChanged.connect(
             lambda: self.toggle_auto_captioner_action.setChecked(
                 self.auto_captioner.isVisible()))
+        # Captioning reads the images while it runs, so it must not start
+        # while the dataset tools are changing them.
+        self.auto_captioner.get_start_blocker_message = (
+            lambda: ('Wait for the dataset tools to finish: they are '
+                     'changing the images.')
+            if self.dataset_tools.is_changing_files() else None)
+
+    def connect_dataset_tools_signals(self):
+        self.dataset_tools.is_captioning = (
+            lambda: self.auto_captioner.is_captioning)
+        self.dataset_tools.get_current_image = self.get_current_image
+        self.dataset_tools.directory_reload_requested.connect(
+            self.reload_directory)
+        self.dataset_tools.load_directory_requested.connect(
+            self.load_directory)
+        self.dataset_tools.select_images_requested.connect(self.select_images)
+        self.dataset_tools.run_finished.connect(
+            lambda _: self.image_viewer.reload_current_image())
+        self.dataset_tools.visibilityChanged.connect(
+            lambda: self.toggle_dataset_tools_action.setChecked(
+                self.dataset_tools.isVisible()))
+        self.image_viewer.preview_resolver = (
+            lambda image_path: get_preview_paths(self.directory_path,
+                                                 image_path)
+            if self.directory_path else (None, None))
+        self.image_list.list_view.has_backup = (
+            lambda image: self.directory_path is not None
+            and get_backup_path(self.directory_path, image.path) is not None)
+        self.image_list.list_view.undo_images_requested.connect(
+            self.dataset_tools.undo_images)
 
     def restore(self):
         # Restore the window geometry and state.

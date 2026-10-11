@@ -20,17 +20,38 @@ from utils.utils import get_confirmation_dialog_reply, pluralize
 UNDO_STACK_SIZE = 32
 
 
-def get_file_paths(directory_path: Path) -> set[Path]:
+# Subfolders that are never listed: the output folders of the dataset tools.
+# `_reframed` holds a copy of every image of the dataset, so listing it under
+# its parent would show each image twice. It is captioned by loading it as the
+# dataset itself: the loaded folder is never filtered, only its subfolders.
+ALWAYS_HIDDEN_FOLDERS = frozenset({
+    '_backup', '_duplicates', '_prep', '_classify', '_embeddings', '_pipeline',
+    '_reframed', 'masks', 'faces'})
+
+
+def is_hidden_folder(path: Path, hide_underscore_folders: bool) -> bool:
+    name = path.name.lower()
+    if name in ALWAYS_HIDDEN_FOLDERS:
+        return True
+    return hide_underscore_folders and name.startswith('_')
+
+
+def get_file_paths(directory_path: Path,
+                   hide_underscore_folders: bool = True) -> set[Path]:
     """
     Recursively get all file paths in a directory, including those in
-    subdirectories.
+    subdirectories, skipping the output folders of the dataset tools (see
+    `ALWAYS_HIDDEN_FOLDERS`) and, with `hide_underscore_folders`, every other
+    subfolder whose name starts with an underscore.
     """
     file_paths = set()
     for path in directory_path.iterdir():
         if path.is_file():
             file_paths.add(path)
         elif path.is_dir():
-            file_paths.update(get_file_paths(path))
+            if is_hidden_folder(path, hide_underscore_folders):
+                continue
+            file_paths.update(get_file_paths(path, hide_underscore_folders))
     return file_paths
 
 
@@ -114,8 +135,12 @@ class ImageListModel(QAbstractListModel):
         self.undo_stack.clear()
         self.redo_stack.clear()
         self.update_undo_and_redo_actions_requested.emit()
-        file_paths = get_file_paths(directory_path)
         settings = get_settings()
+        hide_underscore_folders = settings.value(
+            'hide_underscore_folders',
+            defaultValue=DEFAULT_SETTINGS['hide_underscore_folders'],
+            type=bool)
+        file_paths = get_file_paths(directory_path, hide_underscore_folders)
         image_suffixes_string = settings.value(
             'image_list_file_formats',
             defaultValue=DEFAULT_SETTINGS['image_list_file_formats'], type=str)

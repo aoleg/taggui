@@ -17,7 +17,13 @@ DEFAULT_SETTINGS = {
     'image_list_image_width': 200,
     'tag_separator': ',',
     'insert_space_after_tag_separator': True,
-    'autocomplete_tags': True
+    'autocomplete_tags': True,
+    # Hide every subfolder whose name starts with an underscore when a
+    # directory is loaded (the output folders of the dataset tools).
+    'hide_underscore_folders': True,
+    # The dataset_tools checkout (or its `venv` folder). Empty means the
+    # sibling folder `../dataset_tools` of this checkout.
+    'dataset_tools_path': ''
 }
 
 

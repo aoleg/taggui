@@ -16,6 +16,10 @@ models.
   (llama.cpp server, koboldcpp, etc.)
 - Batch tag operations for renaming, deleting, and sorting tags
 - Advanced image list filtering
+- Dataset repair from the `Dataset Tools` dock: border removal, watermark
+  removal, subject cropping, JPEG cleanup and face masks, run by
+  [dataset_tools](https://github.com/aoleg/dataset_tools) in its own
+  environment, with preview and undo
 
 ## Installation
 
@@ -114,6 +118,74 @@ default) will be removed from the generated captions.
 The advanced settings (`Maximum tokens`, `Temperature`, `Top-p`, `Top-k`,
 `Repetition penalty`) are passed directly to the API and control the
 model's sampling behavior.
+
+## Dataset Tools
+
+The `Dataset Tools` dock (`View` -> `Dataset Tools`) runs the repair tools of
+[dataset_tools](https://github.com/aoleg/dataset_tools) over the loaded
+directory: its `pipeline` tool decodes each image once, runs the ticked stages
+in memory, and writes it once. TagGUI stays lightweight: the tools run in the
+dataset_tools virtual environment as a subprocess, and nothing from them is
+imported.
+
+### Setup
+
+Clone dataset_tools next to the TagGUI folder (so that `../dataset_tools`
+exists) and run its `install.bat`, or point the `Dataset tools` field of the
+dock at the checkout or at its `venv` folder. The dock reports `Ready` when
+the interpreter, the pipeline tool and the model libraries are found, and the
+reason otherwise.
+
+### Stages
+
+The stages run in this order, each with at most two options:
+
+| stage | what it does |
+|---|---|
+| Remove borders | cuts frames, thin lines, slanted scan frames and text banners off |
+| Remove watermarks | finds watermarks and paints them out, or cuts them off (`Cut off`) |
+| Reframe photos of people | crops to the subject (a person or a group, without passers-by) in a training aspect ratio; `Best fit` picks the tightest of seven ratios, `Square` always crops 1:1 and may cut below the hips, `Closest aspect ratio` keeps the photo's own ratio |
+| Clean JPEG artifacts | restores images saved below the quality threshold with FBCNN, only where the restoration removes enough damage |
+| Face masks | writes a loss mask per image into a `masks` folder next to it, white where the training loss counts and black over the faces; `Include hair` extends the mask upward and `Invert` trains only the faces |
+
+JPEG images are cropped losslessly unless a stage changes their pixels; a
+changed image is then written once, as JPEG at quality 97 or as PNG with
+`Save changed images as PNG`.
+
+### Preview, Run, Undo
+
+- `Preview` runs the detection passes and draws the previews without changing
+  an image. `View` -> `Show Pipeline Preview` (`Ctrl`+`P`) then shows, for
+  the current image, the reframe verdict with the numbered people and the
+  planned crop, the watermark mask, or the face mask tinted red. The contact
+  sheets of the border and cleanup stages open with `Open Border Sheets` and
+  `Open Cleanup Sheets`.
+- `Run` applies the stages. `In place` writes over the images and copies each
+  changed original with its caption to the `_backup` folder first, once per
+  image, however many stages change it. `New folder` writes the whole
+  dataset, changed and unchanged images with all captions, to the named
+  folder (the dataset folder with `_prepared` added, by default) and offers to
+  load it. Ticking `Reframe` switches the default to `New folder`.
+- `Undo Last Run` returns the images of the last run to their originals.
+  Right-clicking images in the image list and choosing `Undo` restores just
+  those images; their backup captions are restored too, and when an image had
+  no caption before the run but has one now, you are asked whether to delete
+  it.
+- `Select Changed Images` selects the images the last run changed, or the
+  last preview would change, so that `Start Auto-Captioning` captions exactly
+  those. Captions are never deleted by a run; a cropped image keeps its
+  caption and is captioned again.
+- The `Keep`, `Crop` and `Set People` buttons write a reframe correction for
+  the current image into `overrides.txt` in the dataset folder. Preview again
+  to see the corrected crop; the detections are cached, so this is quick.
+
+`Preview` can run while the auto-captioner is working, because it only reads
+the images. `Run` and `Undo` wait for the captioner, and the captioner waits
+for them.
+
+The output folders of the tools (`_backup`, `masks`, `_reframed` and the
+others) are never shown in the image list. `Hide _ folders in the image list`
+also hides every other subfolder whose name starts with an underscore.
 
 ## Advanced Image List Filtering
 

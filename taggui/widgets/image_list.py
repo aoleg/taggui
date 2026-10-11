@@ -3,6 +3,7 @@ from enum import Enum
 from functools import reduce
 from operator import or_
 from pathlib import Path
+from typing import Callable
 
 from PySide6.QtCore import (QItemSelection, QItemSelectionModel,
                             QItemSelectionRange, QModelIndex, QSize, QUrl, Qt,
@@ -99,6 +100,8 @@ class SelectionMode(str, Enum):
 class ImageListView(QListView):
     tags_paste_requested = Signal(list, list)
     directory_reload_requested = Signal()
+    # The selected images whose originals should be restored from `_backup`.
+    undo_images_requested = Signal(list)
 
     def __init__(self, parent, proxy_image_list_model: ProxyImageListModel,
                  tag_separator: str, image_width: int):
@@ -146,6 +149,12 @@ class ImageListView(QListView):
         self.open_image_action = self.addAction('Open Image in Default App')
         self.open_image_action.setShortcut('Ctrl+O')
         self.open_image_action.triggered.connect(self.open_image)
+        # Restores the originals of the selected images from the `_backup`
+        # folder of the dataset tools. Enabled only when at least one
+        # selected image has a backup; the check is set by the main window.
+        self.undo_images_action = self.addAction('Undo')
+        self.undo_images_action.triggered.connect(self.undo_selected_images)
+        self.has_backup: Callable[[Image], bool] = lambda _: False
 
         self.context_menu = QMenu(self)
         self.context_menu.addAction('Select All Images', self.selectAll,
@@ -161,6 +170,8 @@ class ImageListView(QListView):
         self.context_menu.addAction(self.copy_images_action)
         self.context_menu.addAction(self.delete_images_action)
         self.context_menu.addAction(self.open_image_action)
+        self.context_menu.addSeparator()
+        self.context_menu.addAction(self.undo_images_action)
         self.selectionModel().selectionChanged.connect(
             self.update_context_menu_actions)
 
@@ -312,6 +323,12 @@ class ImageListView(QListView):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(image_path)))
 
     @Slot()
+    def undo_selected_images(self):
+        selected_images = self.get_selected_images()
+        if selected_images:
+            self.undo_images_requested.emit(selected_images)
+
+    @Slot()
     def update_context_menu_actions(self):
         selected_image_count = len(self.selectedIndexes())
         copy_file_names_action_name = (
@@ -330,6 +347,16 @@ class ImageListView(QListView):
         self.copy_images_action.setText(copy_images_action_name)
         self.delete_images_action.setText(delete_images_action_name)
         self.open_image_action.setVisible(selected_image_count == 1)
+        selected_images = self.get_selected_images()
+        backup_count = sum(1 for image in selected_images
+                           if self.has_backup(image))
+        self.undo_images_action.setEnabled(backup_count > 0)
+        if selected_image_count > 1:
+            self.undo_images_action.setText(
+                f'Undo ({backup_count} of {selected_image_count} images have '
+                f'an original)')
+        else:
+            self.undo_images_action.setText('Undo')
 
 
 class ImageList(QDockWidget):

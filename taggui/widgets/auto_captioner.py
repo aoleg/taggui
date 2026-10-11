@@ -325,6 +325,10 @@ class AutoCaptioner(QDockWidget):
         self.settings = get_settings()
         self.is_captioning = False
         self.captioning_thread = None
+        # Returns a message when captioning must not start now (set by the
+        # main window: the dataset tools are changing the images), else
+        # `None`.
+        self.get_start_blocker_message = lambda: None
         # Whether the cloud captioning consent warning has already been
         # accepted this session. Reset only when the application restarts.
         self.cloud_captioning_consent_given = False
@@ -437,6 +441,11 @@ class AutoCaptioner(QDockWidget):
 
     @Slot()
     def generate_captions(self):
+        start_blocker_message = self.get_start_blocker_message()
+        if start_blocker_message:
+            QMessageBox.information(self, 'Auto-Captioner',
+                                    start_blocker_message)
+            return
         caption_settings = self.caption_settings_form.get_caption_settings()
         if (caption_settings['is_cloud_backend']
                 and not self.cloud_captioning_consent_given):
