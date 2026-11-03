@@ -23,7 +23,19 @@ DEFAULT_SETTINGS = {
     'hide_underscore_folders': True,
     # The dataset_tools checkout (or its `venv` folder). Empty means the
     # sibling folder `../dataset_tools` of this checkout.
-    'dataset_tools_path': ''
+    'dataset_tools_path': '',
+    # The captioning endpoint and its sampling parameters, shared by the
+    # auto-captioner form and the command-line captioner. The URL is the
+    # koboldcpp default, the backend the form starts with.
+    'api_base_url': 'http://localhost:5001',
+    'api_key': '',
+    'api_model': '',
+    'max_tokens': 300,
+    'temperature': 1.0,
+    'top_p': 1.0,
+    'top_k': 50,
+    'repetition_penalty': 1.0,
+    'allow_reasoning': False
 }
 
 

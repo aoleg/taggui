@@ -1,23 +1,17 @@
 from datetime import datetime
 from time import perf_counter
 
-from PIL import UnidentifiedImageError
 from PySide6.QtCore import QModelIndex, QThread, Qt, Signal
 
-from auto_captioning.captioning_model import (CaptioningModel,
-                                              RequestFailedError)
+from auto_captioning.captioner import (MAX_CONSECUTIVE_SKIPS,
+                                       CaptioningCanceled, ImageSkipped,
+                                       caption_image)
+from auto_captioning.captioning_model import CaptioningModel
 from models.image_list_model import ImageListModel
 from utils.enums import CaptionPosition
 from utils.image import Image
 from utils.settings import get_tag_separator
 from utils.utils import pluralize
-
-# When a request fails, the image is resized to half its width and height and
-# sent again, up to this many times, before it is skipped.
-MAX_RETRY_COUNT = 2
-# Captioning stops when this many images in a row are skipped, because the
-# endpoint itself is then the likely problem.
-MAX_CONSECUTIVE_SKIPS = 3
 
 
 def add_caption_to_tags(tags: list[str], caption: str,
@@ -83,8 +77,8 @@ class CaptioningThread(QThread):
         self.is_canceled = False
 
     def run_captioning(self):
-        model = CaptioningModel(captioning_thread_=self,
-                                caption_settings=self.caption_settings)
+        model = CaptioningModel(caption_settings=self.caption_settings,
+                                tag_separator=self.tag_separator)
         error_message = model.get_error_message()
         if error_message:
             self.is_error = True
@@ -112,40 +106,18 @@ class CaptioningThread(QThread):
                 return
             image_prompt = model.get_image_prompt(image)
             try:
-                pil_image, is_source_jpeg = model.load_image(image)
-            except FileNotFoundError:
-                print(f'Skipping {image.path.name} because it was deleted or '
-                      f'moved.')
-                if are_multiple_images_selected:
-                    self.progress_bar_update_requested.emit(i + 1)
-                continue
-            except UnidentifiedImageError:
-                print(f'Skipping {image.path.name} because its file format is '
-                      'not supported or it is a corrupted image.')
-                continue
-            for retry_count in range(MAX_RETRY_COUNT + 1):
-                if retry_count > 0:
-                    if self.is_canceled:
-                        print('Canceled captioning.')
-                        return
-                    # The endpoint may have rejected the image because it is
-                    # too large, so try again at half the width and height.
-                    pil_image = pil_image.reduce(2)
-                    print(f'Retrying {image.path.name} at '
-                          f'{pil_image.width}x{pil_image.height}.')
-                model_inputs = model.get_model_inputs(image_prompt, pil_image,
-                                                      is_source_jpeg)
-                try:
-                    caption, console_output_caption = model.generate_caption(
-                        model_inputs, image_prompt)
-                    break
-                except RequestFailedError as exception:
-                    print(exception)
-            else:
-                skipped_image_names.append(image.path.name)
-                consecutive_skipped_image_count += 1
-                print(f'Skipping {image.path.name} because captioning failed '
-                      f'{MAX_RETRY_COUNT + 1} times.')
+                caption = caption_image(model, image, image_prompt,
+                                        lambda: self.is_canceled)
+            except CaptioningCanceled:
+                print('Canceled captioning.')
+                return
+            except ImageSkipped as skip:
+                print(f'Skipping {image.path.name} because {skip}.')
+                # A missing or unreadable image is a skip the endpoint had no
+                # part in, so it does not count towards stopping the run.
+                if skip.is_endpoint_failure:
+                    skipped_image_names.append(image.path.name)
+                    consecutive_skipped_image_count += 1
                 if are_multiple_images_selected:
                     self.progress_bar_update_requested.emit(i + 1)
                 if consecutive_skipped_image_count == MAX_CONSECUTIVE_SKIPS:
@@ -160,10 +132,8 @@ class CaptioningThread(QThread):
                 self.progress_bar_update_requested.emit(i + 1)
             if i == 0 and not are_multiple_images_selected:
                 self.clear_console_text_edit_requested.emit()
-            if console_output_caption is None:
-                console_output_caption = caption
             print(f'{image.path.name} ({perf_counter() - start_time:.1f} s):\n'
-                  f'{console_output_caption}')
+                  f'{caption}')
         if are_multiple_images_selected:
             captioning_end_datetime = datetime.now()
             total_captioning_duration = ((captioning_end_datetime

@@ -43,6 +43,25 @@ def is_hidden_folder(path: Path, hide_underscore_folders: bool) -> bool:
     return hide_underscore_folders and name.startswith('_')
 
 
+def get_image_suffixes(settings) -> list[str]:
+    """
+    The lowercase, dotted suffixes of the files that are listed as images,
+    from the `image_list_file_formats` setting.
+    """
+    image_suffixes_string = settings.value(
+        'image_list_file_formats',
+        defaultValue=DEFAULT_SETTINGS['image_list_file_formats'], type=str)
+    image_suffixes = []
+    for suffix in image_suffixes_string.split(','):
+        suffix = suffix.strip().lower()
+        if not suffix:
+            continue
+        if not suffix.startswith('.'):
+            suffix = '.' + suffix
+        image_suffixes.append(suffix)
+    return image_suffixes
+
+
 def get_file_paths(directory_path: Path,
                    hide_underscore_folders: bool = True) -> set[Path]:
     """
@@ -148,15 +167,7 @@ class ImageListModel(QAbstractListModel):
             defaultValue=DEFAULT_SETTINGS['hide_underscore_folders'],
             type=bool)
         file_paths = get_file_paths(directory_path, hide_underscore_folders)
-        image_suffixes_string = settings.value(
-            'image_list_file_formats',
-            defaultValue=DEFAULT_SETTINGS['image_list_file_formats'], type=str)
-        image_suffixes = []
-        for suffix in image_suffixes_string.split(','):
-            suffix = suffix.strip().lower()
-            if not suffix.startswith('.'):
-                suffix = '.' + suffix
-            image_suffixes.append(suffix)
+        image_suffixes = get_image_suffixes(settings)
         image_paths = {path for path in file_paths
                        if path.suffix.lower() in image_suffixes}
         # Comparing paths is slow on some systems, so convert the paths to

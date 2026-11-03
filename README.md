@@ -103,6 +103,9 @@ about each image into the prompt:
 - `{name}`: The file name of the image without the extension.
 - `{directory}` or `{folder}`: The name of the directory containing the image.
 
+Braces around anything else are left as they are, so a JSON schema can be
+part of a prompt.
+
 An example prompt using a template variable could be
 `Describe the image using the following tags as context: {tags}`.
 With this prompt, `{tags}` would be replaced with the existing tags of each
@@ -118,6 +121,64 @@ default) will be removed from the generated captions.
 The advanced settings (`Maximum tokens`, `Temperature`, `Top-p`, `Top-k`,
 `Repetition penalty`) are passed directly to the API and control the
 model's sampling behavior.
+
+## Command-line Captioning
+
+`run.bat <folder>` captions a dataset without the window, with the endpoint
+and sampling settings of the Auto-Captioner and the prompts of the `prompts`
+folder. It walks the folder and its subfolders (skipping the folders of the
+dataset tools, as the image list does) and sends every image that has no
+`<stem>.json` sidecar to the model. The model answers with one JSON object
+in the form of the
+[MOSS-Image caption prompt](https://github.com/OpenMOSS/MOSS-Image/blob/main/USERGUIDE.md):
+`caption.long`, `caption.medium`, `caption.short`, plus `watermark` boxes
+and `borders`. The run writes three sidecars per image:
+
+- `<stem>.json`: the whole answer. `caption.medium`, the watermark boxes and
+  the borders live only here.
+- `<stem>.txt`: `caption.long`.
+- `<stem>.short`: `caption.short`, one line. A trainer that reads any
+  caption extension (Ostris AI Toolkit) can train the same folder once with
+  `caption_ext: txt` and once with `caption_ext: short`.
+
+An existing `.txt` or `.short` is copied to `<folder>_backup`, next to the
+dataset folder and under the same relative path, before it is overwritten.
+A backup is made once and never replaced, so it stays the original; the
+image list's `Undo` restores it. A run that stops (Ctrl+C, a crash, the
+server going down) is continued by starting the same command again: images
+with a `.json` are skipped. To redo an image, delete its `.json`. A CSV log
+of every image goes to `<folder>_backup\_caption\log.csv`.
+
+```
+run.bat D:\photos
+run.bat D:\photos --dry-run
+run.bat D:\photos --limit 10 --reasoning --max-tokens 16384
+run.bat D:\photos --sysprompt my_system.txt --mainprompt my_prompt.txt
+run.bat D:\photos --url http://192.168.1.20:1234 --model qwen3.5-27b
+```
+
+`--dry-run` sends and writes nothing: it prints the counts, the files that
+would be backed up and the first request's text. `--limit N` captions at
+most N images, for a look at the results before the full run. The other
+options (`--url`, `--api-key`, `--model`, `--max-tokens`, `--temperature`,
+`--top-p`, `--top-k`, `--repetition-penalty`, `--reasoning` or
+`--no-reasoning`, `--timeout`) replace the setting of the same name for the
+run. The MOSS-Image guide recommends reasoning on with 16384 maximum tokens,
+temperature 1 and top-p 0.95; the run prints what it uses before the first
+request.
+
+The prompts are `prompts\sysprompt.txt` and `prompts\main_prompt.txt`, which
+are yours and ignored by git; the tracked `sample_` files are used when they
+are missing. See [prompts/README.md](prompts/README.md) for the template
+variables, including `{style}`, the letter A, B or C drawn per image for
+the form of the short caption, and the encodings accepted. `{tags}` carries
+the image's existing `.txt` text whole, as the reference caption. Braces
+that are not a template variable, such as the JSON schema in a prompt, are
+left as they are.
+
+Note that any `<stem>.json` counts as a caption, as it does for the dataset
+tools. In a folder where `.json` files mean something else, such as the
+record files of a PastVu base, every image is taken as captioned already.
 
 ## Dataset Tools
 

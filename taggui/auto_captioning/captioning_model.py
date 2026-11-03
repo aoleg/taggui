@@ -2,7 +2,6 @@ import base64
 import re
 from datetime import datetime
 from io import BytesIO
-from typing import TYPE_CHECKING
 
 import requests
 from PIL import Image as PilImage
@@ -10,9 +9,9 @@ from PIL.ImageOps import exif_transpose
 
 from utils.image import Image
 
-if TYPE_CHECKING:
-    import auto_captioning.captioning_thread as captioning_thread
-
+# The default `request_timeout` caption setting: how long to wait for one
+# caption. A reasoning model with a high token limit can take longer, so the
+# command-line captioner lets it be raised.
 REQUEST_TIMEOUT_SECONDS = 300
 # Images are sent as JPEG if the source file is a JPEG (MPO is the multi-picture
 # JPEG variant that some cameras write), or if they have more pixels than this.
@@ -73,7 +72,8 @@ def strip_thinking(text: str) -> str:
     return RESIDUAL_CONTROL_TOKEN.sub('', text)
 
 
-def replace_template_variable(match: re.Match, image: Image) -> str:
+def replace_template_variable(match: re.Match, image: Image,
+                              extra_variables: dict[str, str]) -> str:
     template_variable = match.group(0)[1:-1].lower()
     if template_variable == 'tags':
         return ', '.join(image.tags)
@@ -81,15 +81,59 @@ def replace_template_variable(match: re.Match, image: Image) -> str:
         return image.path.stem
     if template_variable in ('directory', 'folder'):
         return image.path.parent.name
+    if template_variable in extra_variables:
+        return extra_variables[template_variable]
+    # An unknown variable is left as it is, as before.
+    return match.group(0)
 
 
-def replace_template_variables(text: str, image: Image) -> str:
+def replace_template_variables(
+        text: str, image: Image,
+        extra_variables: dict[str, str] | None = None) -> str:
+    """
+    Fill in the `{tags}`, `{name}` and `{folder}` variables of a prompt, and
+    any in `extra_variables` (lowercase names), such as the `{style}` of the
+    command-line captioner.
+    """
+    extra_variables = extra_variables or {}
     # Replace template variables inside curly braces that are not escaped.
     text = re.sub(r'(?<!\\){[^{}]+(?<!\\)}',
-                  lambda match: replace_template_variable(match, image), text)
+                  lambda match: replace_template_variable(
+                      match, image, extra_variables), text)
     # Unescape escaped curly braces.
     text = re.sub(r'\\([{}])', r'\1', text)
     return text
+
+
+def make_generation_parameters(max_tokens: int, temperature: float,
+                               top_p: float, top_k: int,
+                               repetition_penalty: float,
+                               allow_reasoning: bool) -> dict:
+    """
+    The sampling parameters of a chat completions request, with the switches
+    that turn reasoning off. Used by the auto-captioner form and the
+    command-line captioner, so that both send the same request.
+    """
+    generation_parameters = {
+        'max_tokens': max_tokens,
+        'temperature': temperature,
+        'top_p': top_p,
+        'top_k': top_k,
+        'repetition_penalty': repetition_penalty,
+        # Reasoning is toggled by the chat template, not by the sampler, so
+        # the flag has to be passed as a template variable. A top-level
+        # `enable_thinking` is silently ignored.
+        'chat_template_kwargs': {'enable_thinking': allow_reasoning}
+    }
+    if not allow_reasoning:
+        # LM Studio ignores `chat_template_kwargs` and instead maps
+        # `reasoning_effort` onto whatever reasoning fields the model
+        # declares, so both have to be sent to cover every backend. Only
+        # `none` turns reasoning off; `low` still reasons in full. When
+        # reasoning is allowed, the parameter is left out so that the model
+        # uses its own default.
+        generation_parameters['reasoning_effort'] = 'none'
+    return generation_parameters
 
 
 def encode_image_as_data_url(pil_image: PilImage.Image,
@@ -118,11 +162,11 @@ class CaptioningModel:
     """Generates captions by calling an OpenAI-compatible chat completions
     endpoint (llama.cpp server, koboldcpp, LM Studio, or a cloud API)."""
 
-    def __init__(self,
-                 captioning_thread_: 'captioning_thread.CaptioningThread',
-                 caption_settings: dict):
-        self.thread = captioning_thread_
+    def __init__(self, caption_settings: dict, tag_separator: str):
         self.caption_settings = caption_settings
+        self.tag_separator = tag_separator
+        self.request_timeout = caption_settings.get(
+            'request_timeout', REQUEST_TIMEOUT_SECONDS)
         self.base_url = caption_settings['base_url'].strip().rstrip('/')
         self.api_key = caption_settings.get('api_key', '').strip()
         self.model = caption_settings.get('model', '').strip() or 'local-model'
@@ -142,19 +186,25 @@ class CaptioningModel:
             return 'The API base URL is not set.'
         return None
 
-    def load_processor_and_model(self):
-        # Verify that the endpoint is reachable and report the loaded model.
+    def load_processor_and_model(self) -> str:
+        """
+        Verify that the endpoint is reachable and report the loaded model.
+        Returns the name of the model that will answer: the configured one,
+        or the first one the endpoint lists.
+        """
         try:
             response = requests.get(f'{self.base_url}/v1/models',
                                     headers=self.get_headers(), timeout=10)
             response.raise_for_status()
             models = response.json().get('data', [])
             model_name = models[0]['id'] if models else 'unknown'
-            print(f'Connected to {self.base_url} '
-                  f'(model: {self.model or model_name}).')
         except requests.RequestException as exception:
             raise RuntimeError(
                 f'Failed to connect to {self.base_url}: {exception}')
+        if self.caption_settings.get('model', '').strip():
+            model_name = self.model
+        print(f'Connected to {self.base_url} (model: {model_name}).')
+        return model_name
 
     def monkey_patch_after_loading(self):
         return
@@ -210,7 +260,7 @@ class CaptioningModel:
             caption = generated_text
         caption = caption.strip()
         if self.remove_tag_separators:
-            caption = caption.replace(self.thread.tag_separator, ' ')
+            caption = caption.replace(self.tag_separator, ' ')
         return caption
 
     def send_chat_completions_request(self,
@@ -218,7 +268,7 @@ class CaptioningModel:
         try:
             response = requests.post(f'{self.base_url}/v1/chat/completions',
                                      json=payload, headers=self.get_headers(),
-                                     timeout=REQUEST_TIMEOUT_SECONDS)
+                                     timeout=self.request_timeout)
             response.raise_for_status()
         except requests.ReadTimeout as exception:
             # The endpoint accepted the request but did not respond in time.

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QAbstractScrollArea, QDockWidget, QFormLayout,
                                QPushButton, QScrollArea, QSizePolicy,
                                QVBoxLayout, QWidget)
 
+from auto_captioning.captioning_model import make_generation_parameters
 from auto_captioning.captioning_thread import (CaptioningThread,
                                                add_caption_to_tags)
 from dialogs.caption_multiple_images_dialog import CaptionMultipleImagesDialog
@@ -18,7 +19,8 @@ from dialogs.cloud_captioning_consent_dialog import \
 from models.image_list_model import ImageListModel
 from utils.big_widgets import TallPushButton
 from utils.enums import CaptionPosition
-from utils.settings import get_settings, get_tag_separator
+from utils.settings import (DEFAULT_SETTINGS, get_settings,
+                            get_tag_separator)
 from utils.settings_widgets import (FocusedScrollSettingsComboBox,
                                     FocusedScrollSettingsDoubleSpinBox,
                                     FocusedScrollSettingsSpinBox,
@@ -155,21 +157,27 @@ class CaptionSettingsForm(QVBoxLayout):
         advanced_settings_form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.max_tokens_spin_box = FocusedScrollSettingsSpinBox(
-            key='max_tokens', default=300, minimum=1, maximum=8192)
+            key='max_tokens', default=DEFAULT_SETTINGS['max_tokens'],
+            minimum=1, maximum=8192)
         # The temperature must be positive.
         self.temperature_spin_box = FocusedScrollSettingsDoubleSpinBox(
-            key='temperature', default=1, minimum=0.01, maximum=2)
+            key='temperature', default=DEFAULT_SETTINGS['temperature'],
+            minimum=0.01, maximum=2)
         self.temperature_spin_box.setSingleStep(0.01)
         self.top_p_spin_box = FocusedScrollSettingsDoubleSpinBox(
-            key='top_p', default=1, minimum=0, maximum=1)
+            key='top_p', default=DEFAULT_SETTINGS['top_p'], minimum=0,
+            maximum=1)
         self.top_p_spin_box.setSingleStep(0.01)
         self.top_k_spin_box = FocusedScrollSettingsSpinBox(
-            key='top_k', default=50, minimum=0, maximum=200)
+            key='top_k', default=DEFAULT_SETTINGS['top_k'], minimum=0,
+            maximum=200)
         self.repetition_penalty_spin_box = FocusedScrollSettingsDoubleSpinBox(
-            key='repetition_penalty', default=1, minimum=1, maximum=2)
+            key='repetition_penalty',
+            default=DEFAULT_SETTINGS['repetition_penalty'], minimum=1,
+            maximum=2)
         self.repetition_penalty_spin_box.setSingleStep(0.01)
         self.allow_reasoning_check_box = SettingsBigCheckBox(
-            key='allow_reasoning', default=False)
+            key='allow_reasoning', default=DEFAULT_SETTINGS['allow_reasoning'])
         advanced_settings_form.addRow('Maximum tokens',
                                       self.max_tokens_spin_box)
         advanced_settings_form.addRow('Temperature',
@@ -272,26 +280,13 @@ class CaptionSettingsForm(QVBoxLayout):
 
     def get_caption_settings(self) -> dict:
         backend = self.backend_combo_box.currentText()
-        allow_reasoning = self.allow_reasoning_check_box.isChecked()
-        generation_parameters = {
-            'max_tokens': self.max_tokens_spin_box.value(),
-            'temperature': self.temperature_spin_box.value(),
-            'top_p': self.top_p_spin_box.value(),
-            'top_k': self.top_k_spin_box.value(),
-            'repetition_penalty': self.repetition_penalty_spin_box.value(),
-            # Reasoning is toggled by the chat template, not by the sampler, so
-            # the flag has to be passed as a template variable. A top-level
-            # `enable_thinking` is silently ignored.
-            'chat_template_kwargs': {'enable_thinking': allow_reasoning}
-        }
-        if not allow_reasoning:
-            # LM Studio ignores `chat_template_kwargs` and instead maps
-            # `reasoning_effort` onto whatever reasoning fields the model
-            # declares, so both have to be sent to cover every backend. Only
-            # `none` turns reasoning off; `low` still reasons in full. When
-            # reasoning is allowed, the parameter is left out so that the model
-            # uses its own default.
-            generation_parameters['reasoning_effort'] = 'none'
+        generation_parameters = make_generation_parameters(
+            max_tokens=self.max_tokens_spin_box.value(),
+            temperature=self.temperature_spin_box.value(),
+            top_p=self.top_p_spin_box.value(),
+            top_k=self.top_k_spin_box.value(),
+            repetition_penalty=self.repetition_penalty_spin_box.value(),
+            allow_reasoning=self.allow_reasoning_check_box.isChecked())
         return {
             'backend': backend,
             'is_cloud_backend': BACKENDS[backend]['is_cloud'],

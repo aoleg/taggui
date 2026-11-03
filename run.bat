@@ -10,4 +10,11 @@ if not exist venv (
 )
 
 call venv\Scripts\activate.bat
-python taggui\run_gui.py
+
+rem With no arguments: the window. With arguments: the command-line
+rem captioner, which takes them unchanged (run.bat <folder> --help).
+if "%~1"=="" (
+    python taggui\run_gui.py
+) else (
+    python taggui\run_cli.py %*
+)

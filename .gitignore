@@ -166,4 +166,8 @@ cython_debug/
 test/
 
 # Planning notes, local only
-PLAN.md
+PLAN*.md
+
+# The private prompts of the command-line captioner; the samples are tracked
+prompts/main_prompt.txt
+prompts/sysprompt.txt
