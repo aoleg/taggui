@@ -34,7 +34,8 @@ from auto_captioning.captioning_model import (CaptioningModel,
                                               REQUEST_TIMEOUT_SECONDS,
                                               make_generation_parameters,
                                               replace_template_variables)
-from auto_captioning.json_caption import (extract_json_object,
+from auto_captioning.json_caption import (describe_json_error,
+                                          extract_json_object,
                                           get_caption_json_error,
                                           get_sidecar_paths, one_line,
                                           read_text_file,
@@ -310,6 +311,8 @@ def caption_one(run: Run, model: CaptioningModel, image_path: Path,
         reason = get_caption_json_error(caption_json) or ''
         if not reason:
             break
+        if caption_json is None:
+            reason = f'{reason}: {describe_json_error(answer)}'
         caption_json = None
         reason = f'{reason}; answer: {" ".join(answer.split())[:200]}'
         if attempts < MAX_ANSWER_ATTEMPTS:

@@ -39,20 +39,73 @@ def read_text_file(path: Path) -> str:
     return text.replace('\r\n', '\n').replace('\r', '\n')
 
 
+def remove_trailing_commas(text: str) -> str:
+    """
+    Remove a comma that comes right before a closing brace or bracket,
+    outside of strings: the one JSON fault a captioning model makes often
+    (`"short": "...",\\n  }`). Strings are tracked so that a comma inside a
+    caption is never touched.
+    """
+    result = []
+    in_string = False
+    i = 0
+    while i < len(text):
+        character = text[i]
+        if in_string:
+            result.append(character)
+            if character == '\\' and i + 1 < len(text):
+                result.append(text[i + 1])
+                i += 1
+            elif character == '"':
+                in_string = False
+        elif character == '"':
+            in_string = True
+            result.append(character)
+        elif character == ',':
+            following = re.match(r'\s*[}\]]', text[i + 1:])
+            if following is None:
+                result.append(character)
+        else:
+            result.append(character)
+        i += 1
+    return ''.join(result)
+
+
 def extract_json_object(text: str) -> dict | None:
     """
     The first JSON object in a model's answer. Code fences and any text
-    around the object are skipped by trying to decode from every `{`.
+    around the object are skipped by trying to decode from every `{`. An
+    answer that strict JSON rejects gets a second pass with the usual model
+    faults repaired: trailing commas removed, control characters (a line
+    break inside a caption) allowed.
     """
-    decoder = json.JSONDecoder()
-    for match in re.finditer(r'{', text):
-        try:
-            value, _ = decoder.raw_decode(text, match.start())
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            return value
+    for candidate, strict in ((text, True),
+                              (remove_trailing_commas(text), False)):
+        decoder = json.JSONDecoder(strict=strict)
+        for match in re.finditer(r'{', candidate):
+            try:
+                value, _ = decoder.raw_decode(candidate, match.start())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                return value
     return None
+
+
+def describe_json_error(text: str) -> str:
+    """
+    Why no JSON object could be read from an answer, for the log: the
+    decoder's message and position for the first `{`, after the repairs.
+    """
+    candidate = remove_trailing_commas(text)
+    start = candidate.find('{')
+    if start < 0:
+        return 'the answer has no "{"'
+    try:
+        json.JSONDecoder(strict=False).raw_decode(candidate, start)
+    except json.JSONDecodeError as error:
+        return f'{error.msg} at character {error.pos} of the answer'
+    return 'the first JSON value is not an object'
 
 
 def get_caption_json_error(caption_json) -> str | None:
@@ -62,7 +115,7 @@ def get_caption_json_error(caption_json) -> str | None:
     non-empty strings. The other fields are kept as they are.
     """
     if not isinstance(caption_json, dict):
-        return 'the answer holds no JSON object'
+        return 'no JSON object'
     caption = caption_json.get('caption')
     if not isinstance(caption, dict):
         return '"caption" is missing or is not an object'
